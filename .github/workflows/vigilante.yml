@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: "Calibracion: numero de procedimiento a probar (dejalo vacio para una corrida normal)"
+        description: "Calibracion: uno o varios numeros de procedimiento separados por espacio o coma (vacio = corrida normal)"
         required: false
         default: ""
   push:
@@ -38,10 +38,11 @@ jobs:
         env:
           INPUT_PROBE: ${{ github.event.inputs.probe }}
         run: |
-          P="$INPUT_PROBE"
+          P="$(echo "$INPUT_PROBE" | tr ',' ' ')"
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "calibrar" ] && [ -f probe.txt ]; then
-            P="$(head -n1 probe.txt | tr -d '[:space:]')"
+            P="$(grep -v '^#' probe.txt | tr ',\n' '  ')"   # uno o varios numeros, uno por linea
           fi
+          P="$(echo $P)"
           echo "probe=$P" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
@@ -75,7 +76,7 @@ jobs:
         run: |
           mkdir -p debug
           set -o pipefail
-          python bot.py probe "$PROBE" 2>&1 | tee debug/resultado.txt
+          python bot.py probe $PROBE 2>&1 | tee debug/resultado.txt
 
       - name: Corrida normal
         if: ${{ steps.modo.outputs.probe == '' }}

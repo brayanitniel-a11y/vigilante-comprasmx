@@ -39,10 +39,11 @@ class Store:
     def __init__(self, path: str):
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
-        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}}
+        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
+        self.data.setdefault("seen", {})
         self._saved = self._dump()
 
     def _dump(self) -> str:
@@ -105,6 +106,19 @@ def _find(store: Store, chat_id: int, token: str):
     return None
 
 
+def _ultima(store: Store, ref: str) -> str:
+    v = store.data["seen"].get(ref)
+    if not v:
+        return "aun no se ha revisado"
+    mins = max(0, int((time.time() - v["t"]) / 60))
+    hace = f"{mins} min" if mins < 120 else f"{mins // 60} h"
+    return f"revisado hace {hace}" + ("" if v["ok"] else f" - con problema: {v['err']}")
+
+
+def _visto(store: Store, ref: str, ok: bool, err: str = ""):
+    store.data["seen"][ref] = {"t": int(time.time()), "ok": ok, "err": err[:80]}
+
+
 def handle_message(store: Store, chat_id: int, text: str):
     text = (text or "").strip()
     if not text:
@@ -152,6 +166,7 @@ def handle_message(store: Store, chat_id: int, text: str):
         if not any(x["ref"] == s["ref"] for x in store.data["subs"]):
             store.data["docs"].pop(s["ref"], None)
             store.data["fails"].pop(s["ref"], None)
+            store.data["seen"].pop(s["ref"], None)
         send(chat_id, f"Quitado: <code>{esc(s['ref'])}</code>")
     elif cmd == "/lista":
         mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
@@ -162,7 +177,7 @@ def handle_message(store: Store, chat_id: int, text: str):
         for i, s in enumerate(mine, 1):
             n = len(store.data["docs"].get(s["ref"], {}))
             estado = f"{n} anexos/actas" if s["base"] else "pendiente de primera lectura"
-            lines.append(f"{i}. <code>{esc(s['ref'])}</code> {esc(s['alias'])} ({estado})")
+            lines.append(f"{i}. <code>{esc(s['ref'])}</code> {esc(s['alias'])} ({estado})\n    {esc(_ultima(store, s['ref']))}")
         send(chat_id, "\n".join(lines))
     elif cmd == "/revisar":
         store.force = True
@@ -205,6 +220,7 @@ def check_ref(store: Store, ref: str, fetch):
         anexos = fetch(ref)
     except NoEncontrado:
         fails[ref] = fails.get(ref, 0) + 1
+        _visto(store, ref, False, "no aparece en la consulta publica")
         for s in subs:
             if not s["base"] and not s["warned"]:
                 s["warned"] = True
@@ -216,6 +232,7 @@ def check_ref(store: Store, ref: str, fetch):
     except Exception as e:  # noqa: BLE001
         fails[ref] = fails.get(ref, 0) + 1
         print(f"[{ref}] error ({fails[ref]}): {e}")
+        _visto(store, ref, False, str(e))
         if fails[ref] == ALERT_AFTER_FAILURES:
             for s in subs:
                 send(s["chat"], f"No puedo leer <code>{esc(ref)}</code> desde hace varias revisiones: "
@@ -227,8 +244,10 @@ def check_ref(store: Store, ref: str, fetch):
         # Antes tenia anexos y ahora ninguno: casi seguro la pagina cargo incompleta. No tocar nada.
         fails[ref] = fails.get(ref, 0) + 1
         print(f"[{ref}] lectura vacia sospechosa (antes habia {len(known)}); se ignora")
+        _visto(store, ref, False, "lectura vacia, se ignoro")
         return
     fails[ref] = 0
+    _visto(store, ref, True)
     new = [a for a in anexos if a.id not in known]
     antes: dict[str, int] = {}  # total de archivos previo de cada fila, para mostrar "antes N"
     for d in known.values():
@@ -301,27 +320,35 @@ def loop(store: Store):
             nxt = time.time() + interval_now() * random.uniform(0.9, 1.2)
 
 
-def probe(ref: str | None) -> int:
-    if not ref:
-        print("Uso: python bot.py probe <numero de procedimiento>")
+def probe(refs: list[str]) -> int:
+    refs = [normalize_ref(r) for r in refs if r.strip()]
+    if not refs:
+        print("Uso: python bot.py probe <numero> [<numero> ...]")
         return 2
-    ref = normalize_ref(ref)
+    codigo = 0
     with open_fetcher(debug=True) as fetch:
-        try:
-            docs = fetch(ref)
-        except NoEncontrado:
-            print(f"NO ENCONTRADO: {ref} no aparece en la consulta publica (revisa capturas en debug/)")
-            return 1
-    print(f"{len(docs)} anexos/actas en {ref}:")
-    for d in docs:
-        print(f"  - {d.nombre} | {d.fecha} | {d.url}")
-    return 0
+        for ref in refs:
+            print(f"=== {ref}")
+            try:
+                docs = fetch(ref)
+            except NoEncontrado:
+                print(f"NO ENCONTRADO: {ref} no aparece en la consulta publica (revisa capturas en debug/)")
+                codigo = 1
+                continue
+            except Exception as e:  # noqa: BLE001
+                print(f"ERROR leyendo {ref}: {e}")
+                codigo = 1
+                continue
+            print(f"{len(docs)} anexos/actas en {ref}:")
+            for d in docs:
+                print(f"  - {d.nombre} | {d.fecha}")
+    return codigo
 
 
 def main(argv) -> int:
     mode = argv[1] if len(argv) > 1 else "once"
     if mode == "probe":
-        return probe(argv[2] if len(argv) > 2 else None)
+        return probe(argv[2:])
     if not TOKEN or not ALLOWED:
         sys.exit("Faltan TELEGRAM_TOKEN y/o ALLOWED_CHAT_IDS")
     store = Store(STATE_PATH)
