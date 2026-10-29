@@ -9,14 +9,16 @@ on:
         description: "Calibracion: numero de procedimiento a probar (dejalo vacio para una corrida normal)"
         required: false
         default: ""
+  push:
+    branches: [calibrar]         # calibracion automatica: la rama 'calibrar' trae un probe.txt con el numero
 
 concurrency:
   group: vigilante
   cancel-in-progress: false
 
 permissions:
-  contents: read
-  actions: write                 # solo para limpiar cachés viejas de estado
+  contents: write                # para publicar el resultado de la calibracion en una rama aparte
+  actions: write                 # para limpiar cachés viejas de estado
 
 jobs:
   vigilar:
@@ -29,6 +31,17 @@ jobs:
       TZ: America/Mexico_City
     steps:
       - uses: actions/checkout@v4
+
+      - name: Decidir modo (normal o calibracion)
+        id: modo
+        env:
+          INPUT_PROBE: ${{ github.event.inputs.probe }}
+        run: |
+          P="$INPUT_PROBE"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            P="$(head -n1 probe.txt | tr -d '[:space:]')"
+          fi
+          echo "probe=$P" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -46,22 +59,29 @@ jobs:
       - run: playwright install --with-deps chromium
 
       - name: Recuperar estado (lista de procedimientos)
+        if: ${{ steps.modo.outputs.probe == '' }}
         uses: actions/cache/restore@v4
         with:
           path: state
           key: state-none
           restore-keys: state-
 
-      - name: Calibracion (solo si escribiste un numero al lanzarlo a mano)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.probe != '' }}
-        run: python bot.py probe "${{ inputs.probe }}"
+      - name: Calibracion
+        if: ${{ steps.modo.outputs.probe != '' }}
+        continue-on-error: true
+        env:
+          PROBE: ${{ steps.modo.outputs.probe }}
+        run: |
+          mkdir -p debug
+          set -o pipefail
+          python bot.py probe "$PROBE" 2>&1 | tee debug/resultado.txt
 
       - name: Corrida normal
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.probe != '') }}
+        if: ${{ steps.modo.outputs.probe == '' }}
         run: python bot.py once
 
       - name: Guardar estado
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.probe != '') }}
+        if: ${{ always() && steps.modo.outputs.probe == '' }}
         uses: actions/cache/save@v4
         with:
           path: state
@@ -75,6 +95,20 @@ jobs:
           path: debug/
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Publicar resultado de la calibracion (rama calibracion-resultado)
+        if: ${{ always() && steps.modo.outputs.probe != '' }}
+        env:
+          PROBE: ${{ steps.modo.outputs.probe }}
+        run: |
+          mkdir -p debug
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan calibracion-resultado
+          git rm -rf --cached . > /dev/null 2>&1 || true
+          git add -f debug
+          git commit -q -m "Resultado de calibracion: $PROBE"
+          git push -f origin calibracion-resultado
 
       - name: Limpiar cachés de estado viejas (deja las 3 más recientes)
         if: always()
