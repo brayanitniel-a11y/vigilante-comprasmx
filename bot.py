@@ -269,7 +269,7 @@ def check_ref(store: Store, ref: str, fetch):
                 send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}\n{body}{link}")
         else:
             s["base"] = True
-            resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:15]) + ("\n..." if len(anexos) > 15 else "")
+            resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:25]) + ("\n..." if len(anexos) > 25 else "")
             send(s["chat"], f"Base lista: {len(known)} anexos/actas actuales en <code>{esc(ref)}</code>.\n"
                             f"Esto ya existia, solo aviso de lo que aparezca despues:\n{resumen}")
 
@@ -284,6 +284,27 @@ def run_cycle(store: Store):
             store.save()
             if i < len(refs) - 1:
                 time.sleep(random.uniform(*PAUSE))
+
+
+SCHEMA = 2   # 2 = lee todas las paginas de ANEXOS e incluye el Num. de fila en la identidad
+
+
+def migrate(store: Store):
+    """Si cambio la forma de leer, las fotos iniciales viejas ya no sirven: se vuelven a tomar (una vez)."""
+    if store.data.get("v") == SCHEMA:
+        return
+    primera_vez = "v" not in store.data and not store.data["subs"]
+    store.data["v"] = SCHEMA
+    if not primera_vez and store.data["subs"]:
+        store.data["docs"] = {}
+        for s in store.data["subs"]:
+            s["base"] = False
+            s["warned"] = False
+        for chat in sorted({s["chat"] for s in store.data["subs"]}):
+            send(chat, "Actualice el lector: ahora leo <b>todas las paginas</b> de la tabla de anexos "
+                       "(antes solo la primera). Vuelvo a tomar la foto inicial de tus procedimientos; "
+                       "te la mando enseguida.")
+    store.save()
 
 
 # --------------------------------------------------------------------------- #
@@ -354,6 +375,7 @@ def main(argv) -> int:
     if not TOKEN or not ALLOWED:
         sys.exit("Faltan TELEGRAM_TOKEN y/o ALLOWED_CHAT_IDS")
     store = Store(STATE_PATH)
+    migrate(store)
     if mode == "once":
         once(store)
     elif mode == "loop":
