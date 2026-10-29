@@ -222,8 +222,13 @@ def check_ref(store: Store, ref: str, fetch):
                                 f"{esc(str(e))[:200]}")
         return
 
-    fails[ref] = 0
     known = store.data["docs"].setdefault(ref, {})
+    if not anexos and known:
+        # Antes tenia anexos y ahora ninguno: casi seguro la pagina cargo incompleta. No tocar nada.
+        fails[ref] = fails.get(ref, 0) + 1
+        print(f"[{ref}] lectura vacia sospechosa (antes habia {len(known)}); se ignora")
+        return
+    fails[ref] = 0
     new = [a for a in anexos if a.id not in known]
     antes: dict[str, int] = {}  # total de archivos previo de cada fila, para mostrar "antes N"
     for d in known.values():

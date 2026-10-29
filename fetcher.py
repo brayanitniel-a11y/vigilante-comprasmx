@@ -219,12 +219,28 @@ class Browser:
         except Exception:  # noqa: BLE001
             self._dump("detalle_no_cargo")
             raise RuntimeError("La pagina del procedimiento no termino de cargar")
-        try:  # la tabla de anexos puede no existir si aun no hay anexos
-            p.wait_for_selector("app-sitiopublico-detalle-anexos table tbody tr", timeout=12000)
-        except Exception:  # noqa: BLE001
-            pass
+        # Mientras carga, la tabla muestra una fila "No se encontraron resultados" y "Total: 0":
+        # eso NO es una tabla vacia de verdad. Esperamos a filas reales (primera celda numerica).
+        filas_reales = """() => {
+          const c = document.querySelector('app-sitiopublico-detalle-anexos');
+          if (!c) return false;
+          return [...c.querySelectorAll('tbody tr')].some(tr => {
+            const td = tr.querySelectorAll('td');
+            return td.length >= 4 && /^\\d+$/.test((td[0].innerText || '').trim());
+          });
+        }"""
+        cargo = False
+        for espera in (25000, 10000):  # si no aparecen filas, una segunda oportunidad antes de darla por vacia
+            try:
+                p.wait_for_function(filas_reales, timeout=espera)
+                cargo = True
+                break
+            except Exception:  # noqa: BLE001
+                continue
         self._settle()
         raw = p.evaluate(JS_TABLAS)
+        if not cargo and self.debug:
+            print("aviso: la tabla de anexos no mostro filas (puede estar vacia de verdad o cargar lento)")
         # La tabla de anexos tiene paginador ("Total: N"): recorre todas las paginas.
         paginas = [raw]
         for _ in range(20):

@@ -153,4 +153,10 @@ bot.run_cycle(store)
 assert "(antes: 90)" in sent[-1] and "ACTA DE JUNTA" in sent[-1] and "(nuevo)" in sent[-1], sent[-1]
 assert "CONVOCATORIA (1" not in sent[-1]
 
+# 11) lectura vacia sospechosa (pagina a medio cargar): no se toca el estado ni se avisa
+site[REF4] = []
+n_msgs, n_docs = len(sent), len(store.data["docs"][REF4])
+bot.run_cycle(store)
+assert len(sent) == n_msgs and len(store.data["docs"][REF4]) == n_docs
+
 print("OK: todas las pruebas pasaron")
