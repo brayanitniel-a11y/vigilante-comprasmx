@@ -269,7 +269,9 @@ def check_ref(store: Store, ref: str, fetch):
                 send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}\n{body}{link}")
         else:
             s["base"] = True
-            send(s["chat"], f"Base lista: {len(known)} anexos/actas actuales en <code>{esc(ref)}</code>.")
+            resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:15]) + ("\n..." if len(anexos) > 15 else "")
+            send(s["chat"], f"Base lista: {len(known)} anexos/actas actuales en <code>{esc(ref)}</code>.\n"
+                            f"Esto ya existia, solo aviso de lo que aparezca despues:\n{resumen}")
 
 
 def run_cycle(store: Store):
