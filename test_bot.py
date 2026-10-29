@@ -159,4 +159,27 @@ n_msgs, n_docs = len(sent), len(store.data["docs"][REF4])
 bot.run_cycle(store)
 assert len(sent) == n_msgs and len(store.data["docs"][REF4]) == n_docs
 
+# 12) filas identicas (mismo tipo, descripcion y total) son filas distintas: se distinguen por Num.
+raw3 = {"titles": ["ANEXOS"], "tables": [{
+    "sec": "ANEXOS", "ths": ["Núm.", "Tipo de documento", "Descripción", "Total de Archivos", "Acciones"],
+    "rows": [["10", "AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES", "AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES", "1", ""],
+             ["11", "AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES", "AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES", "1", ""],
+             ["16", "ACTA JUNTA DE ACLARACIONES", "ACTA JUNTA DE ACLARACIONES", "1", ""]]}]}
+d3 = parse_tablas(raw3, "http://x/p")
+assert len(d3) == 3 and len({d.id for d in d3}) == 3, d3
+
+# 13) migracion: al cambiar el esquema se vuelve a tomar la foto inicial y se avisa una vez
+st = bot.Store(os.path.join(tempfile.mkdtemp(), "s.json"))
+st.data["subs"].append({"chat": 1, "ref": "LA-50-GYR-050GYR003-T-163-2026", "alias": "", "base": True, "warned": False})
+st.data["docs"]["LA-50-GYR-050GYR003-T-163-2026"] = {"x": {"n": "a", "f": "", "g": "", "t": 0}}
+n0 = len(sent)
+bot.migrate(st)
+assert st.data["v"] == bot.SCHEMA and st.data["docs"] == {} and st.data["subs"][0]["base"] is False
+assert len(sent) == n0 + 1 and "todas las paginas" in sent[-1]
+bot.migrate(st)
+assert len(sent) == n0 + 1          # solo una vez
+st2 = bot.Store(os.path.join(tempfile.mkdtemp(), "nuevo.json"))
+bot.migrate(st2)                    # instalacion nueva: no manda nada
+assert len(sent) == n0 + 1
+
 print("OK: todas las pruebas pasaron")

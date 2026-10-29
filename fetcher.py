@@ -46,6 +46,22 @@ JS_TABLAS = """() => {
 }"""
 
 
+JS_FILAS_ANEXOS = """() => {
+  const c = document.querySelector('app-sitiopublico-detalle-anexos');
+  if (!c) return [];
+  return [...c.querySelectorAll('tbody tr')]
+    .map(tr => [...tr.querySelectorAll('td')].map(td => (td.innerText || '').trim()))
+    .filter(r => r.length >= 4 && /^\\d+$/.test(r[0]));
+}"""
+
+JS_CAMBIO_PRIMERA = """(prev) => {
+  const c = document.querySelector('app-sitiopublico-detalle-anexos');
+  const tr = c && c.querySelector('tbody tr');
+  const td = tr && tr.querySelector('td');
+  return !!td && (td.innerText || '').trim() !== prev;
+}"""
+
+
 class NoEncontrado(Exception):
     """El numero de procedimiento no aparece en la consulta publica."""
 
@@ -74,7 +90,7 @@ def parse_tablas(raw: dict, proc_url: str = "") -> list[Anexo]:
                     return i
             return -1
 
-        i_tipo, i_desc, i_tot = col(r"tipo de documento"), col(r"descripci"), col(r"total de archivos")
+        i_num, i_tipo, i_desc, i_tot = col(r"n[uú]m"), col(r"tipo de documento"), col(r"descripci"), col(r"total de archivos")
         es_doc = i_tipo >= 0
         if not es_doc and not ACTA_RE.search(sec):
             continue  # partidas, requerimientos economicos, etc.
@@ -93,7 +109,8 @@ def parse_tablas(raw: dict, proc_url: str = "") -> list[Anexo]:
                 tot = ""
             m = re.search(DATE_RE, plano)
             fecha = m.group(0) if m else ""
-            grupo = f"{sec}|{tipo}|{desc}"
+            num = cells[i_num] if 0 <= i_num < len(cells) else ""
+            grupo = f"{sec}|{num}|{tipo}|{desc}"
             uid = hashlib.sha1(f"{grupo}|{tot}".encode()).hexdigest()[:16]
             if uid in vistos:
                 continue
@@ -239,6 +256,12 @@ class Browser:
                 continue
         self._settle()
         raw = p.evaluate(JS_TABLAS)
+        if cargo:
+            todas = self._filas_anexos_todas_las_paginas()
+            for t in raw.get("tables", []):
+                if t["sec"].strip().upper() == "ANEXOS" and any("tipo de documento" in h.lower() for h in t["ths"]):
+                    if todas:
+                        t["rows"] = todas
         if not cargo and self.debug:
             print("aviso: la tabla de anexos no mostro filas (puede estar vacia de verdad o cargar lento)")
         # La tabla de anexos tiene paginador ("Total: N"): recorre todas las paginas.
@@ -256,6 +279,51 @@ class Browser:
             self._dump("sin_seccion_anexos")
             raise RuntimeError(f"No encontre la seccion ANEXOS (secciones vistas: {titulos[:150]})")
         return parse_tablas(raw, proc_url)
+
+    def _filas_anexos_todas_las_paginas(self) -> list[list[str]]:
+        """Recorre TODAS las paginas de la tabla ANEXOS (10 filas por pagina) y devuelve todas las filas."""
+        p = self.page
+        pag = p.locator("app-sitiopublico-detalle-anexos .p-paginator")
+        if pag.count() == 0:
+            return p.evaluate(JS_FILAS_ANEXOS)
+
+        def boton(sel):
+            b = pag.first.locator(sel)
+            if b.count() == 0:
+                return None
+            b = b.first
+            if "p-disabled" in (b.get_attribute("class") or "") or b.is_disabled():
+                return None
+            return b
+
+        def primera() -> str:
+            f = p.evaluate(JS_FILAS_ANEXOS)
+            return f[0][0] if f else ""
+
+        def ir(b):
+            prev = primera()
+            b.click()
+            try:
+                p.wait_for_function(JS_CAMBIO_PRIMERA, arg=prev, timeout=8000)
+            except Exception:  # noqa: BLE001
+                return False
+            time.sleep(0.3)
+            return True
+
+        b = boton(".p-paginator-first")
+        if b:
+            ir(b)  # siempre empezar en la pagina 1
+        todas: list[list[str]] = []
+        vistas: set[str] = set()
+        for _ in range(60):
+            for r in p.evaluate(JS_FILAS_ANEXOS):
+                if r[0] not in vistas:
+                    vistas.add(r[0])
+                    todas.append(r)
+            nxt = boton(".p-paginator-next")
+            if not nxt or not ir(nxt):
+                break
+        return todas
 
     # ----- API publica -----------------------------------------------------
     def anexos(self, numero: str) -> list[Anexo]:
