@@ -122,4 +122,35 @@ assert "ANEXO TÉCNICO" in sent[-1] and "91 archivos" in sent[-1] and "antes: 90
 bot.run_cycle(store)
 assert sum("91 archivos" in s for s in sent) == 1   # no repite el aviso
 
+# 10) fila nueva (acta) + total que sube, en un solo aviso
+import copy  # noqa: E402
+
+docs = parse_tablas(raw, "http://x/p")
+assert len(docs) == 6, [d.nombre for d in docs]          # solo la tabla ANEXOS: sin partidas ni requerimientos
+assert docs[1].nombre == "[ANEXOS] ANEXO TÉCNICO (90 archivos)", docs[1].nombre
+assert docs[3].nombre == "[ANEXOS] ANEXOS DE CONVOCATORIA — ANEXOS TECNICOS (85 archivos)", docs[3].nombre
+assert [d.total for d in docs] == [1, 90, 1, 85, 3, 9]
+assert len({d.id for d in docs}) == 6
+
+# si sube el total de una fila, es "nuevo" con el mismo grupo; si aparece una fila nueva, tambien
+raw2 = copy.deepcopy(raw)
+for t in raw2["tables"]:
+    if t["sec"] == "ANEXOS":
+        t["rows"][1][3] = "91"
+        t["rows"].append(["7", "ACTA DE JUNTA DE ACLARACIONES", "ACTA", "1", ""])
+docs2 = parse_tablas(raw2, "http://x/p")
+nuevos = [d for d in docs2 if d.id not in {x.id for x in docs}]
+assert len(nuevos) == 2 and nuevos[0].grupo == docs[1].grupo and nuevos[0].total == 91, nuevos
+
+# flujo completo: base con 6 filas, luego sube un total y aparece un acta -> un solo aviso con "antes"
+REF4 = "LA-07-110-007000999-T-731-2026"
+site[REF4] = docs
+bot.handle_message(store, 1, f"/agregar {REF4}")
+bot.run_cycle(store)
+assert any("Base lista: 6" in s for s in sent), sent[-3:]
+site[REF4] = docs2
+bot.run_cycle(store)
+assert "(antes: 90)" in sent[-1] and "ACTA DE JUNTA" in sent[-1] and "(nuevo)" in sent[-1], sent[-1]
+assert "CONVOCATORIA (1" not in sent[-1]
+
 print("OK: todas las pruebas pasaron")
