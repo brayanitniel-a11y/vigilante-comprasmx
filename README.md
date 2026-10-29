@@ -53,26 +53,28 @@ Solo los chats de esa lista pueden usar el bot.
 
 ## Parte 4. Calibrar la lectura de ComprasMX (importante)
 
-Esto es lo que más puede fallar: el bot "ve" el sitio como una persona (busca la pestaña, el campo
-*Número de procedimiento*, el botón *Buscar*, la pestaña *Anexos*). Los textos que busca están en
-`fetcher.py`, y hay que comprobarlos con un procedimiento real antes de dejarlo trabajando.
+El bot "ve" el sitio como una persona: busca el campo *Número de procedimiento*, el botón *Buscar*, abre
+el procedimiento y lee la tabla **ANEXOS** (tipo de documento y *Total de archivos*; cada vez que sube el
+total de una fila, te avisa). **Esta calibración ya se probó con un procedimiento real y funciona**; repítela
+solo si ComprasMX cambia su diseño o el bot empieza a fallar.
+
+Atajo: al subir a la rama `calibrar` un archivo `probe.txt` con un número, el workflow corre la prueba solo y
+publica el resultado en la rama `calibracion-resultado` (así se puede revisar sin descargar nada).
 
 1. Repo → pestaña **Actions** → si pide habilitar workflows, acéptalo.
 2. A la izquierda **Vigilante ComprasMX** → botón **Run workflow**.
 3. En el cuadro *probe* escribe un número de procedimiento real (que ya tenga anexos) → **Run workflow**.
 4. Espera 2–3 min, abre la corrida y entra al paso **Calibracion**. Al final debe mostrar algo así:
    ```
-   4 anexos/actas en IO-89-L47-830124970-N-14-2026:
-     - [Anexos] Convocatoria.pdf | 02/10/2026 | https://...
+   6 anexos/actas en LA-07-110-007000999-T-730-2026:
+     - [ANEXOS] ANEXO TÉCNICO (90 archivos) |  | https://...
    ```
 5. Si falla o sale vacío: en la parte baja de la corrida, sección **Artifacts**, descarga **debug**
    (capturas `.png` y páginas `.html` de cada paso). **Mándamelas** (o descríbeme qué pasó) y ajusto los
    textos de `fetcher.py`. Es normal que haga falta un ajuste la primera vez.
 6. Prueba también con un número que no exista: debe decir `NO ENCONTRADO`.
 
-Verifica sobre todo: que lea las **actas** (según el sitio pueden estar en otra sección; el nombre de las
-secciones se cambia con la variable `SECTIONS`, por defecto `Anexos,Actas`) y que no se pierda anexos si
-la tabla tiene varias páginas.
+Si aparece una sección de actas en un procedimiento, el bot la detecta (secciones cuyo título incluya acta, junta, fallo o apertura), igual que las filas nuevas de la tabla ANEXOS.
 
 ## Parte 5. Ponerlo a trabajar
 
@@ -167,7 +169,6 @@ Para actualizar el código después: `git pull && sudo systemctl restart vigilan
 |---|---|---|
 | `POLL_SECONDS` | 300 | Cada cuántos segundos revisa (solo servidor, de 7 a 21 h) |
 | `NIGHT_POLL_SECONDS` | 900 | Intervalo de noche (solo servidor) |
-| `SECTIONS` | `Anexos,Actas` | Secciones del procedimiento que vigila |
 | `TABS` | `Anuncios vigentes,Anuncios en seguimiento,Anuncios concluidos` | Pestañas donde busca el número |
 | `ALERT_AFTER_FAILURES` | 6 | Fallos seguidos antes de avisarte que no puede leer |
 | `DEBUG` | 0 | `1` guarda capturas en `debug/` |
