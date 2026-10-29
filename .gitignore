@@ -1,0 +1,7 @@
+state/
+debug/
+*.db
+*.tmp
+.env
+__pycache__/
+.venv/
