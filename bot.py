@@ -29,6 +29,7 @@ POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "300"))              # solo mo
 NIGHT_POLL_SECONDS = int(os.environ.get("NIGHT_POLL_SECONDS", "900"))  # solo modo loop
 ALERT_AFTER_FAILURES = int(os.environ.get("ALERT_AFTER_FAILURES", "6"))
 PAUSE = (float(os.environ.get("PAUSE_MIN", "2")), float(os.environ.get("PAUSE_MAX", "5")))
+SEND_FAILURES = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -70,9 +71,11 @@ def tg(method: str, **params):
 
 
 def send(chat_id: int, text: str):
+    global SEND_FAILURES
     try:
         tg("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:  # noqa: BLE001
+        SEND_FAILURES += 1
         print("sendMessage fallo:", e)
 
 
@@ -170,12 +173,16 @@ def handle_message(store: Store, chat_id: int, text: str):
 
 def process_updates(store: Store, timeout: int):
     res = tg("getUpdates", offset=store.data["offset"], timeout=timeout, allowed_updates=["message"])
+    n = 0
     for u in res.get("result", []):
         store.data["offset"] = u["update_id"] + 1
         m = u.get("message") or {}
         if "text" in m:
+            n += 1
+            print(f"mensaje de chat {m['chat']['id']}: {m['text'][:60]!r}")
             handle_message(store, m["chat"]["id"], m["text"])
     store.save()
+    return n
 
 
 # --------------------------------------------------------------------------- #
@@ -248,12 +255,18 @@ def run_cycle(store: Store):
 # Modos
 # --------------------------------------------------------------------------- #
 def once(store: Store):
+    problema = False
     try:
-        process_updates(store, 0)
+        n = process_updates(store, 0)
+        print(f"[once] mensajes nuevos: {n} | procedimientos vigilados: {len(store.data['subs'])}")
     except Exception as e:  # noqa: BLE001
-        print("telegram:", e)
+        print("ERROR de Telegram (getUpdates):", e)
+        problema = True
     run_cycle(store)
     store.save()
+    if problema or SEND_FAILURES:
+        # Que la corrida salga en rojo para que el problema se vea, en vez de fallar en silencio.
+        sys.exit("Hubo errores con Telegram: revisa TELEGRAM_TOKEN, ALLOWED_CHAT_IDS o si hay un webhook activo.")
 
 
 def loop(store: Store):
