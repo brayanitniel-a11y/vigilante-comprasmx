@@ -2,7 +2,8 @@ name: Vigilante ComprasMX
 
 on:
   schedule:
-    - cron: "*/5 * * * *"        # cada 5 minutos (minimo que permite GitHub; puede retrasarse)
+    # Minutos "raros" a proposito: GitHub descarta muchas ejecuciones programadas en :00, :05, :10...
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
     inputs:
       probe:
@@ -10,7 +11,7 @@ on:
         required: false
         default: ""
   push:
-    branches: [calibrar]         # calibracion automatica: la rama 'calibrar' trae un probe.txt con el numero
+    branches: [calibrar, main]   # 'calibrar' = calibracion automatica (probe.txt); 'main' = corrida normal al subir cambios
 
 concurrency:
   group: vigilante
@@ -38,7 +39,7 @@ jobs:
           INPUT_PROBE: ${{ github.event.inputs.probe }}
         run: |
           P="$INPUT_PROBE"
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "calibrar" ] && [ -f probe.txt ]; then
             P="$(head -n1 probe.txt | tr -d '[:space:]')"
           fi
           echo "probe=$P" >> "$GITHUB_OUTPUT"
