@@ -225,13 +225,22 @@ def check_ref(store: Store, ref: str, fetch):
     fails[ref] = 0
     known = store.data["docs"].setdefault(ref, {})
     new = [a for a in anexos if a.id not in known]
+    antes: dict[str, int] = {}  # total de archivos previo de cada fila, para mostrar "antes N"
+    for d in known.values():
+        if d.get("g"):
+            antes[d["g"]] = max(antes.get(d["g"], 0), d.get("t", 0))
     for a in new:
-        known[a.id] = {"n": a.nombre, "f": a.fecha}
+        known[a.id] = {"n": a.nombre, "f": a.fecha, "g": a.grupo, "t": a.total}
     for s in subs:
         if s["base"]:
             if new:
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
-                body = "\n".join(f"• {esc(a.nombre)}" + (f" — {esc(a.fecha)}" if a.fecha else "") for a in new)
+                body = "\n".join(
+                    f"• {esc(a.nombre)}"
+                    + (f" — {esc(a.fecha)}" if a.fecha else "")
+                    + (f" (antes: {antes[a.grupo]})" if a.grupo in antes else " (nuevo)")
+                    for a in new
+                )
                 link = f"\n{esc(new[0].url)}" if new[0].url else ""
                 send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}\n{body}{link}")
         else:

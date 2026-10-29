@@ -2,11 +2,14 @@
 Lectura de anexos/actas desde la consulta publica de ComprasMX.
 
 Usa un navegador real (Playwright) porque el sitio firma sus peticiones internas.
-Un solo navegador por ciclo, se bloquean imagenes/medios y solo se abre la
-seccion de anexos/actas: es lo mas ligero posible.
+Un solo navegador por ciclo, se bloquean imagenes/medios.
 
-IMPORTANTE: los textos de botones/pestanas de abajo son lo unico que depende del
-diseno del sitio. Si ComprasMX cambia algo, se ajustan aqui (ver README, "Calibrar").
+Como esta hecha la pagina del procedimiento (verificado con un procedimiento real):
+es UNA sola hoja larga con secciones (.titulo-seccion). La que importa es "ANEXOS", una tabla
+con columnas: Num. | Tipo de documento | Descripcion | Total de Archivos | Acciones.
+Cada fila es una categoria (CONVOCATORIA, ANEXO TECNICO, ...) y "Total de Archivos" sube
+cuando publican un archivo nuevo en ella. Si aparece una seccion de actas (o filas nuevas de
+tipo "ACTA ..."), tambien se detecta.
 """
 import hashlib
 import os
@@ -19,10 +22,28 @@ from pathlib import Path
 BASE_URL = os.environ.get("COMPRASMX_URL", "https://comprasmx.buengobierno.gob.mx/sitiopublico/#/")
 TABS = [t.strip() for t in os.environ.get(
     "TABS", "Anuncios vigentes,Anuncios en seguimiento,Anuncios concluidos").split(",") if t.strip()]
-SECTIONS = [s.strip() for s in os.environ.get("SECTIONS", "Anexos,Actas").split(",") if s.strip()]
 DEBUG_DIR = Path(os.environ.get("DEBUG_DIR", "debug"))
 DATE_RE = r"\d{2}/\d{2}/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?"
 EMPTY_RE = re.compile(r"no hay|sin registros|no se encontr|no existen|no cuenta con", re.I)
+ACTA_RE = re.compile(r"acta|junta|fallo|apertura", re.I)
+
+# Extrae, en el navegador, los titulos de seccion y las tablas de cada seccion.
+JS_TABLAS = """() => {
+  const titles = [], tables = [];
+  document.querySelectorAll('.titulo-seccion').forEach(t => {
+    const sec = (t.innerText || '').trim();
+    titles.push(sec);
+    const box = t.parentElement;
+    if (!box) return;
+    box.querySelectorAll('table').forEach(tb => {
+      const ths = [...tb.querySelectorAll('thead th')].map(x => (x.innerText || '').trim());
+      const rows = [...tb.querySelectorAll('tbody tr')].map(
+        tr => [...tr.querySelectorAll('td')].map(td => (td.innerText || '').trim()));
+      tables.push({sec, ths, rows});
+    });
+  });
+  return {titles, tables};
+}"""
 
 
 class NoEncontrado(Exception):
@@ -35,10 +56,59 @@ class Anexo:
     nombre: str
     url: str = ""
     fecha: str = ""
+    grupo: str = ""   # identifica la fila (seccion|tipo|descripcion), sin el total
+    total: int = 0    # total de archivos de esa fila (0 si no aplica)
+
+
+def parse_tablas(raw: dict, proc_url: str = "") -> list[Anexo]:
+    """Convierte lo extraido de la pagina en la lista de anexos/actas. Funcion pura (se puede probar sin navegador)."""
+    docs: list[Anexo] = []
+    vistos: set[str] = set()
+    for t in raw.get("tables", []):
+        sec = t["sec"]
+        ths = [h.lower() for h in t["ths"]]
+
+        def col(pat: str) -> int:
+            for i, h in enumerate(ths):
+                if re.search(pat, h):
+                    return i
+            return -1
+
+        i_tipo, i_desc, i_tot = col(r"tipo de documento"), col(r"descripci"), col(r"total de archivos")
+        es_doc = i_tipo >= 0
+        if not es_doc and not ACTA_RE.search(sec):
+            continue  # partidas, requerimientos economicos, etc.
+        for cells in t["rows"]:
+            plano = " ".join(" ".join(cells).split())
+            if not plano or EMPTY_RE.search(plano):
+                continue
+            if es_doc:
+                tipo = cells[i_tipo] if i_tipo < len(cells) else ""
+                desc = cells[i_desc] if 0 <= i_desc < len(cells) else ""
+                tot = cells[i_tot] if 0 <= i_tot < len(cells) else ""
+            else:
+                partes = [c for c in cells if c]
+                tipo = partes[0] if partes else plano
+                desc = " | ".join(partes[1:3])
+                tot = ""
+            m = re.search(DATE_RE, plano)
+            fecha = m.group(0) if m else ""
+            grupo = f"{sec}|{tipo}|{desc}"
+            uid = hashlib.sha1(f"{grupo}|{tot}".encode()).hexdigest()[:16]
+            if uid in vistos:
+                continue
+            vistos.add(uid)
+            nombre = f"[{sec}] {tipo}"
+            if desc and desc.strip().lower() != tipo.strip().lower():
+                nombre += f" — {desc}"
+            if tot:
+                nombre += f" ({tot} archivos)"
+            docs.append(Anexo(uid, nombre, proc_url, fecha, grupo, int(tot) if tot.isdigit() else 0))
+    return docs
 
 
 class Browser:
-    """Uso:  with Browser() as fetch:  docs = fetch("IO-89-L47-...")"""
+    """Uso:  with Browser() as fetch:  docs = fetch("LA-07-110-...")"""
 
     def __init__(self, debug: bool = False):
         self.debug = debug or os.environ.get("DEBUG") == "1"
@@ -142,48 +212,34 @@ class Browser:
         self._settle()
         return True
 
-    def _leer_seccion(self, seccion: str, proc_url: str) -> list[Anexo]:
+    def _leer_documentos(self, proc_url: str) -> list[Anexo]:
         p = self.page
-        exacto = re.compile(rf"^\s*{re.escape(seccion)}\s*$", re.I)
-        pestana = self._first([
-            p.get_by_role("tab", name=exacto),
-            p.get_by_role("link", name=exacto),
-            p.get_by_text(exacto),
-        ], 3000)
-        if not pestana:
-            return []  # este procedimiento aun no tiene esa seccion
-        pestana.click()
+        try:
+            p.wait_for_selector(".titulo-seccion", timeout=20000)
+        except Exception:  # noqa: BLE001
+            self._dump("detalle_no_cargo")
+            raise RuntimeError("La pagina del procedimiento no termino de cargar")
+        try:  # la tabla de anexos puede no existir si aun no hay anexos
+            p.wait_for_selector("app-sitiopublico-detalle-anexos table tbody tr", timeout=12000)
+        except Exception:  # noqa: BLE001
+            pass
         self._settle()
-        if self.debug:
-            self._dump(f"seccion_{seccion}")
-
-        salida: list[Anexo] = []
-        for _ in range(10):  # maximo 10 paginas
-            filas = p.locator("table tbody tr, mat-row, tr.mat-row")
-            n = filas.count()
-            if n == 0 and not salida:
-                if EMPTY_RE.search(p.inner_text("body")):
-                    return []
-                self._dump(f"sin_tabla_{seccion}")
-                raise RuntimeError(f"No pude leer la tabla de '{seccion}'")
-            for i in range(n):
-                texto = filas.nth(i).inner_text()
-                plano = " ".join(texto.split())
-                if not plano or EMPTY_RE.search(plano):
-                    continue
-                celdas = [c.strip() for c in re.split(r"[\t\n]+", texto) if c.strip()]
-                m = re.search(DATE_RE, plano)
-                fecha = m.group(0) if m else ""
-                nombre = next((c for c in celdas if not re.fullmatch(DATE_RE, c) and len(c) > 3), plano)
-                uid = hashlib.sha1(f"{seccion}|{nombre}|{fecha}".encode()).hexdigest()[:16]
-                salida.append(Anexo(uid, f"[{seccion}] {nombre}", proc_url, fecha))
-            sig = p.get_by_role("button", name=re.compile(r"siguiente|next", re.I))
-            if sig.count() and sig.first.is_enabled():
-                sig.first.click()
-                self._settle()
-            else:
+        raw = p.evaluate(JS_TABLAS)
+        # La tabla de anexos tiene paginador ("Total: N"): recorre todas las paginas.
+        paginas = [raw]
+        for _ in range(20):
+            sig = p.locator("app-sitiopublico-detalle-anexos .p-paginator-next:not(.p-disabled)")
+            if sig.count() == 0:
                 break
-        return salida
+            sig.first.click()
+            self._settle()
+            paginas.append(p.evaluate(JS_TABLAS))
+        raw = {"titles": raw.get("titles", []), "tables": [t for r in paginas for t in r.get("tables", [])]}
+        titulos = " | ".join(raw.get("titles", []))
+        if not re.search(r"anexos", titulos, re.I) and not ACTA_RE.search(titulos):
+            self._dump("sin_seccion_anexos")
+            raise RuntimeError(f"No encontre la seccion ANEXOS (secciones vistas: {titulos[:150]})")
+        return parse_tablas(raw, proc_url)
 
     # ----- API publica -----------------------------------------------------
     def anexos(self, numero: str) -> list[Anexo]:
@@ -195,11 +251,9 @@ class Browser:
             else:
                 raise NoEncontrado(numero)
             proc_url = self.page.url
-            docs: list[Anexo] = []
-            for sec in SECTIONS:
-                docs += self._leer_seccion(sec, proc_url)
+            docs = self._leer_documentos(proc_url)
             if self.debug:
-                self._dump(f"final_{numero}")
+                self._dump(f"detalle_{numero}")
             time.sleep(random.uniform(0.3, 0.8))
             return docs
         except NoEncontrado:

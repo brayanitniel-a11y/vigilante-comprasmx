@@ -1,0 +1,198 @@
+{
+ "titles": [
+  "DATOS DEL ENTE CONTRATANTE",
+  "DATOS GENERALES",
+  "CRONOGRAMA DE EVENTOS",
+  "DATOS ESPECÍFICOS",
+  "CRÉDITO EXTERNO",
+  "ANEXOS",
+  "ECONÓMICOS"
+ ],
+ "tables": [
+  {
+   "sec": "DATOS DEL ENTE CONTRATANTE",
+   "ths": [],
+   "rows": [
+    [
+     "007000999 - SUBDIRECCIÓN DE ADQUISICIONES"
+    ]
+   ]
+  },
+  {
+   "sec": "DATOS DEL ENTE CONTRATANTE",
+   "ths": [
+    "Clave",
+    "Descripción"
+   ],
+   "rows": [
+    [
+     "21601",
+     "MATERIAL DE LIMPIEZA"
+    ],
+    [
+     "25401",
+     "MATERIALES, ACCESORIOS Y SUMINISTROS MÉDICOS"
+    ],
+    [
+     "27201",
+     "PRENDAS DE PROTECCIÓN PERSONAL"
+    ]
+   ]
+  },
+  {
+   "sec": "DATOS GENERALES",
+   "ths": [],
+   "rows": [
+    [
+     "007000999 - SUBDIRECCIÓN DE ADQUISICIONES"
+    ]
+   ]
+  },
+  {
+   "sec": "DATOS GENERALES",
+   "ths": [
+    "Clave",
+    "Descripción"
+   ],
+   "rows": [
+    [
+     "21601",
+     "MATERIAL DE LIMPIEZA"
+    ],
+    [
+     "25401",
+     "MATERIALES, ACCESORIOS Y SUMINISTROS MÉDICOS"
+    ],
+    [
+     "27201",
+     "PRENDAS DE PROTECCIÓN PERSONAL"
+    ]
+   ]
+  },
+  {
+   "sec": "DATOS ESPECÍFICOS",
+   "ths": [],
+   "rows": [
+    [
+     "007000999 - SUBDIRECCIÓN DE ADQUISICIONES"
+    ]
+   ]
+  },
+  {
+   "sec": "DATOS ESPECÍFICOS",
+   "ths": [
+    "Clave",
+    "Descripción"
+   ],
+   "rows": [
+    [
+     "21601",
+     "MATERIAL DE LIMPIEZA"
+    ],
+    [
+     "25401",
+     "MATERIALES, ACCESORIOS Y SUMINISTROS MÉDICOS"
+    ],
+    [
+     "27201",
+     "PRENDAS DE PROTECCIÓN PERSONAL"
+    ]
+   ]
+  },
+  {
+   "sec": "ANEXOS",
+   "ths": [
+    "Núm.",
+    "Tipo de documento",
+    "Descripción",
+    "Total de Archivos",
+    "Acciones"
+   ],
+   "rows": [
+    [
+     "1",
+     "CONVOCATORIA",
+     "CONVOCATORIA",
+     "1",
+     ""
+    ],
+    [
+     "2",
+     "ANEXO TÉCNICO",
+     "ANEXO TÉCNICO",
+     "90",
+     ""
+    ],
+    [
+     "3",
+     "MODELO DE CONTRATO",
+     "MODELO DE CONTRATO",
+     "1",
+     ""
+    ],
+    [
+     "4",
+     "ANEXOS DE CONVOCATORIA",
+     "ANEXOS TECNICOS",
+     "85",
+     ""
+    ],
+    [
+     "5",
+     "ANEXOS DE CONVOCATORIA",
+     "ANEXOS CONV",
+     "3",
+     ""
+    ],
+    [
+     "6",
+     "ANEXOS DE CONVOCATORIA",
+     "CRITERIOS POR PUNTOS",
+     "9",
+     ""
+    ]
+   ]
+  },
+  {
+   "sec": "ECONÓMICOS",
+   "ths": [
+    "Núm.",
+    "Partida específica",
+    "Clave CUCoP+",
+    "Descripción CUCoP+",
+    "Descripción detallada",
+    "Unidad de medida",
+    "Cantidad solicitada"
+   ],
+   "rows": [
+    [
+     "1",
+     "53101",
+     "53101-0849",
+     "AGITADOR MAGNETICO (APARATO CIENTIFICO)",
+     "AGITADOR MAGNÉTICO CON PLACA CALIENTE.",
+     "PIEZA",
+     "1"
+    ],
+    [
+     "2",
+     "53101",
+     "53101-1162",
+     "533.020.0048 AGITADORES AGITADOR ELECTRICO DE PLATAFORMA EN FORMA ROTATORIA CON VELOCIDAD DE 10 A 250 R.P.M. CONTROL DE TIEMPO DE 0 A 60 MINUTOS OPERACION CONTINUA INTERMITENTE.",
+     "AGITADOR ORBITAL DE 20 A 300 RPM.",
+     "PIEZA",
+     "3"
+    ],
+    [
+     "3",
+     "51301",
+     "51301-0287",
+     "AGITADOR VORTEX DE VELOCIDAD FIJA O VARIABLE",
+     "AGITADOR TIPO VÓRTEX.",
+     "PIEZA",
+     "3"
+    ]
+   ]
+  }
+ ]
+}

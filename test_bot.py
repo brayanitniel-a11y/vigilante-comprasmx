@@ -95,4 +95,31 @@ bot.tg = lambda method, **kw: {"result": [{"update_id": 7, "message": {"chat": {
 bot.process_updates(store, 0)
 assert store.data["offset"] == 8
 
+# 9) lectura de la pagina real de ComprasMX (fixture extraido de un procedimiento verdadero)
+import json  # noqa: E402
+from fetcher import parse_tablas  # noqa: E402
+
+raw = json.load(open(os.path.join(os.path.dirname(__file__), "tests", "fixture_procedimiento.json"), encoding="utf-8"))
+docs = parse_tablas(raw, "http://x/p")
+assert len(docs) == 6, [d.nombre for d in docs]          # solo la tabla ANEXOS, no partidas ni requerimientos
+assert any("ANEXO TÉCNICO" in d.nombre and "(90 archivos)" in d.nombre for d in docs)
+assert not any("53101" in d.nombre or "21601" in d.nombre for d in docs)
+
+# si sube el total de archivos de una fila, se avisa con el valor anterior
+REF3 = "LA-07-110-007000999-T-730-2026"
+site[REF3] = docs
+bot.handle_message(store, 1, REF3)
+bot.run_cycle(store)
+assert any("Base lista: 6" in s for s in sent)
+raw2 = json.loads(json.dumps(raw))
+for t in raw2["tables"]:
+    for row in t["rows"]:
+        if t["sec"] == "ANEXOS" and row[1] == "ANEXO TÉCNICO":
+            row[3] = "91"
+site[REF3] = parse_tablas(raw2, "http://x/p")
+bot.run_cycle(store)
+assert "ANEXO TÉCNICO" in sent[-1] and "91 archivos" in sent[-1] and "antes: 90" in sent[-1], sent[-1]
+bot.run_cycle(store)
+assert sum("91 archivos" in s for s in sent) == 1   # no repite el aviso
+
 print("OK: todas las pruebas pasaron")
