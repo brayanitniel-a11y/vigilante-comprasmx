@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from cronograma import parse_pairs
+
 BASE_URL = os.environ.get("COMPRASMX_URL", "https://comprasmx.buengobierno.gob.mx/sitiopublico/#/")
 TABS = [t.strip() for t in os.environ.get(
     "TABS", "Anuncios vigentes,Anuncios en seguimiento,Anuncios concluidos").split(",") if t.strip()]
@@ -60,6 +62,26 @@ JS_CAMBIO_PRIMERA = """(prev) => {
   const td = tr && tr.querySelector('td');
   return !!td && (td.innerText || '').trim() !== prev;
 }"""
+
+
+JS_CRONOGRAMA = """() => {
+  const t = [...document.querySelectorAll('.titulo-seccion')].find(x => /CRONOGRAMA/i.test(x.innerText || ''));
+  if (!t || !t.parentElement) return null;
+  return [...t.parentElement.querySelectorAll('label.font-bold')].map(l => {
+    const v = l.parentElement ? l.parentElement.querySelector('label:not(.font-bold)') : null;
+    return [(l.innerText || '').trim(), v ? (v.innerText || '').trim() : ''];
+  });
+}"""
+
+JS_CRONOGRAMA_LISTO = """() => {
+  const t = [...document.querySelectorAll('.titulo-seccion')].find(x => /CRONOGRAMA/i.test(x.innerText || ''));
+  return !!t && !!t.parentElement && t.parentElement.querySelectorAll('label.font-bold').length > 0;
+}"""
+
+
+class Lectura(list):
+    """Lista de Anexo + el cronograma de eventos leido en la misma pagina (dict, o None si no se pudo leer)."""
+    cronograma = None
 
 
 class NoEncontrado(Exception):
@@ -278,7 +300,14 @@ class Browser:
         if not re.search(r"anexos", titulos, re.I) and not ACTA_RE.search(titulos):
             self._dump("sin_seccion_anexos")
             raise RuntimeError(f"No encontre la seccion ANEXOS (secciones vistas: {titulos[:150]})")
-        return parse_tablas(raw, proc_url)
+        try:  # el cronograma se pinta junto con la pagina; espera corta y no fatal
+            p.wait_for_function(JS_CRONOGRAMA_LISTO, timeout=8000)
+        except Exception:  # noqa: BLE001
+            pass
+        lectura = Lectura(parse_tablas(raw, proc_url))
+        pares = p.evaluate(JS_CRONOGRAMA)
+        lectura.cronograma = parse_pairs(pares) if pares else None
+        return lectura
 
     def _filas_anexos_todas_las_paginas(self) -> list[list[str]]:
         """Recorre TODAS las paginas de la tabla ANEXOS (10 filas por pagina) y devuelve todas las filas."""

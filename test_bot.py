@@ -5,7 +5,8 @@ import tempfile
 os.environ["TELEGRAM_TOKEN"] = "x"
 
 import bot  # noqa: E402
-from fetcher import Anexo, NoEncontrado  # noqa: E402
+from fetcher import Anexo, Lectura, NoEncontrado  # noqa: E402
+import cronograma as cr  # noqa: E402
 
 bot.PAUSE = (0, 0)
 bot.ALLOWED = {1}
@@ -14,6 +15,7 @@ bot.send = lambda chat, text: sent.append(text)
 
 site = {}          # numero -> lista de Anexo (el "sitio" simulado)
 broken = set()     # numeros que fallan con error
+crono_site = {}    # numero -> dict del cronograma (None = la pagina no lo trajo)
 
 
 @contextlib.contextmanager
@@ -23,7 +25,9 @@ def fake_fetcher(debug=False):
             raise RuntimeError("el sitio no responde")
         if ref not in site:
             raise NoEncontrado(ref)
-        return list(site[ref])
+        lec = Lectura(site[ref])
+        lec.cronograma = crono_site.get(ref)
+        return lec
     yield fetch
 
 
@@ -181,5 +185,83 @@ assert len(sent) == n0 + 1          # solo una vez
 st2 = bot.Store(os.path.join(tempfile.mkdtemp(), "nuevo.json"))
 bot.migrate(st2)                    # instalacion nueva: no manda nada
 assert len(sent) == n0 + 1
+
+# 14) cronograma: lectura de la pagina real
+pares = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixture_cronograma.json"), encoding="utf-8"))
+C = cr.parse_pairs(pares)
+assert C["Fecha y hora de presentación y apertura de proposiciones"] == "06/11/2026 11:00"
+assert "Lugar del acto del Fallo" in C and len(C) == 13
+assert cr.fmt_fecha("06/11/2026 11:00") == "viernes 06/11/2026 11:00"
+assert cr.fmt_fecha("18/11/2026") == "miércoles 18/11/2026"
+assert not cr.es_lectura_valida({}) and not cr.es_lectura_valida({"Fecha y hora de x": ""}) and cr.es_lectura_valida(C)
+assert cr.resumen(C)[2] == ("Presentación y apertura", "viernes 06/11/2026 11:00")
+
+REF5 = "LA-50-GYR-050GYR003-T-163-2026"
+APER = "Fecha y hora de presentación y apertura de proposiciones"
+site[REF5] = [Anexo("z1", "[ANEXOS] CONVOCATORIA (1 archivos)", "http://x/p")]
+crono_site[REF5] = dict(C)
+bot.handle_message(store, 1, f"/agregar {REF5} T-163")
+bot.run_cycle(store)
+assert store.data["crono"][REF5][APER] == "06/11/2026 11:00"
+assert any("Base lista" in s and "Presentación y apertura: viernes 06/11/2026 11:00" in s for s in sent)
+n = len(sent)
+bot.run_cycle(store)
+assert len(sent) == n                                   # sin cambios: ningun aviso
+
+# 15) diferimiento: cambia la fecha de apertura -> un aviso claro, una sola vez
+crono_site[REF5] = {**C, APER: "13/11/2026 09:30"}
+bot.run_cycle(store)
+msg = sent[-1]
+assert "Cambio de fecha" in msg and "(T-163)" in msg, msg
+assert "del viernes 06/11/2026 11:00 al viernes 13/11/2026 09:30" in msg and "Diferida 7 días" in msg, msg
+bot.run_cycle(store)
+assert sum("Cambio de fecha" in s for s in sent) == 1
+assert store.data["crono"][REF5][APER] == "13/11/2026 09:30"
+
+# 16) adelantarla, o solo cambiar la hora
+crono_site[REF5] = {**C, APER: "12/11/2026 09:30"}
+bot.run_cycle(store)
+assert "Adelantada 1 día." in sent[-1], sent[-1]
+crono_site[REF5] = {**C, APER: "12/11/2026 12:00"}
+bot.run_cycle(store)
+assert "mismo día; cambia la hora" in sent[-1], sent[-1]
+
+# 17) fechas que NO se vigilan (junta, fallo) se guardan pero no avisan
+n = len(sent)
+crono_site[REF5] = {**C, APER: "12/11/2026 12:00", "Fecha y hora de junta de aclaraciones": "25/09/2026 10:00"}
+bot.run_cycle(store)
+assert len(sent) == n and store.data["crono"][REF5]["Fecha y hora de junta de aclaraciones"] == "25/09/2026 10:00"
+
+# 18) lectura incompleta o sin cronograma: no avisa ni borra lo guardado
+for malo in (None, {}, {k: "" for k in C}, {APER: ""}):
+    crono_site[REF5] = malo
+    bot.run_cycle(store)
+    assert len(sent) == n and store.data["crono"][REF5][APER] == "12/11/2026 12:00"
+
+# 19) procedimiento que ya vigilabas antes de esta funcion: la primera lectura solo guarda, sin aviso
+REF6 = "LA-50-GYR-050GYR004-T-164-2026"
+site[REF6] = [Anexo("w1", "[ANEXOS] CONVOCATORIA (1 archivos)", "http://x/p")]
+bot.handle_message(store, 1, f"/agregar {REF6}")
+bot.run_cycle(store)                                    # base sin cronograma (version anterior)
+assert REF6 not in store.data["crono"]
+n = len(sent)
+crono_site[REF6] = {**C, APER: "20/11/2026 10:00"}
+bot.run_cycle(store)
+assert len(sent) == n and store.data["crono"][REF6][APER] == "20/11/2026 10:00"
+crono_site[REF6] = {**C, APER: "27/11/2026 10:00"}
+bot.run_cycle(store)
+assert "Cambio de fecha" in sent[-1] and "REF6" not in sent[-1] and REF6 in sent[-1]
+
+# 20) /fechas: resumen de todos y cronograma completo de uno
+bot.handle_message(store, 1, "/fechas")
+assert "T-163" in sent[-1] and "Presentación y apertura" in sent[-1], sent[-1]
+bot.handle_message(store, 1, "/fechas T-163")
+assert "Lugar del acto del Fallo" in sent[-1] and "jueves 12/11/2026 12:00" in sent[-1], sent[-1]
+bot.handle_message(store, 1, f"/quitar T-163")
+assert REF5 not in store.data["crono"]
+big = [f"{i}. bloque " + "x" * 400 for i in range(20)]
+sent_antes = len(sent)
+bot._enviar_por_partes(1, big)
+assert len(sent) - sent_antes >= 3 and all(len(m) <= 4096 for m in sent[sent_antes:])
 
 print("OK: todas las pruebas pasaron")
