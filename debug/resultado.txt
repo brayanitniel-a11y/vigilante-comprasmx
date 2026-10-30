@@ -1,0 +1,53 @@
+=== LA-50-GYR-050GYR003-T-163-2026
+17 anexos/actas en LA-50-GYR-050GYR003-T-163-2026:
+  - [ANEXOS] CONVOCATORIA (1 archivos) | 
+  - [ANEXOS] ANEXO TÉCNICO (3 archivos) | 
+  - [ANEXOS] MODELO DE CONTRATO (1 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — TERMINOS Y CONDICIONES (6 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — ANEXOS Y CEDULAS EQUIPO MEDICO (48 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — CEDULAS INFORMATICA (2 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — ANEXOS Y CEDULAS MOBILIARIO ADMINISTRATIVO (96 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — MOBILIARIO ADMINISTRATIVO ANEXOS DE TERMINOS Y CONDICIONES (10 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE DIFERIMIENTO DE FECHA Y HORA DE APERTURA DE PROPOSICIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE DIFERIMIENTO DE FECHA Y HORA DE APERTURA DE PROPOSICIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE DIFERIMIENTO DE FECHA Y HORA DE APERTURA DE PROPOSICIONES (1 archivos) | 
+  - [ANEXOS] ACTA JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  CRONOGRAMA DE EVENTOS:
+    Fecha y hora de publicación: 18/09/2026 17:56
+    Fecha y hora de presentación y apertura de proposiciones: 06/11/2026 11:00
+    Lugar de apertura de proposiciones: PLATAFORMA COMPRAS MX
+    Fecha y hora de junta de aclaraciones: 24/09/2026 12:00
+    Fecha y hora límite para envío de aclaraciones a través de Compras MX: 23/09/2026 12:00
+    Lugar de la junta de aclaraciones: PLATAFORMA COMPRAS MX
+    Fecha y hora de la visita a las instalaciones: 22/09/2026 11:00
+    Lugar de la visita a las instalaciones: PLATAFORMA COMPRAS MX
+    Plazo del procedimiento de contratación: RECORTADO
+    Justificación del plazo recortado: CUMPLIR CON FECHAS DE ENTREGA
+    Fecha y hora del acto del Fallo: 13/11/2026 16:00
+    Lugar del acto del Fallo: PLATAFORMA COMPRAS MX
+    Fecha estimada del inicio del contrato: 18/11/2026
+=== LA-07-110-007000999-T-730-2026
+7 anexos/actas en LA-07-110-007000999-T-730-2026:
+  - [ANEXOS] CONVOCATORIA (1 archivos) | 
+  - [ANEXOS] ANEXO TÉCNICO (90 archivos) | 
+  - [ANEXOS] MODELO DE CONTRATO (1 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — ANEXOS TECNICOS (85 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — ANEXOS CONV (3 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — CRITERIOS POR PUNTOS (9 archivos) | 
+  - [ANEXOS] AVISO DE SUSPENSIÓN DE JUNTA DE ACLARACIONES (1 archivos) | 
+  CRONOGRAMA DE EVENTOS:
+    Fecha y hora de publicación: 09/10/2026 17:13
+    Fecha y hora de presentación y apertura de proposiciones: 19/11/2026 09:00
+    Lugar de apertura de proposiciones: COMPRAS MX
+    Fecha y hora de junta de aclaraciones: 29/10/2026 08:00
+    Fecha y hora límite para envío de aclaraciones a través de Compras MX: 28/10/2026 08:00
+    Lugar de la junta de aclaraciones: COMPRAS MX
+    Plazo del procedimiento de contratación: NORMAL
+    Fecha y hora del acto del Fallo: 09/12/2026 12:00
+    Lugar del acto del Fallo: COMPRAS MX
+    Fecha estimada del inicio del contrato: 30/12/2026
