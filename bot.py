@@ -20,6 +20,7 @@ import time
 
 import requests
 
+import cronograma as cr
 from fetcher import Anexo, Browser, NoEncontrado  # noqa: F401
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -39,11 +40,12 @@ class Store:
     def __init__(self, path: str):
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
-        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}}
+        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
         self.data.setdefault("seen", {})
+        self.data.setdefault("crono", {})
         self._saved = self._dump()
 
     def _dump(self) -> str:
@@ -106,6 +108,18 @@ def _find(store: Store, chat_id: int, token: str):
     return None
 
 
+def _enviar_por_partes(chat_id: int, bloques: list[str], limite: int = 3500):
+    """Telegram corta los mensajes de mas de 4096 caracteres: se manda en varias partes."""
+    actual = ""
+    for b in bloques:
+        if actual and len(actual) + len(b) + 2 > limite:
+            send(chat_id, actual)
+            actual = ""
+        actual += ("\n\n" if actual else "") + b
+    if actual:
+        send(chat_id, actual)
+
+
 def _ultima(store: Store, ref: str) -> str:
     v = store.data["seen"].get(ref)
     if not v:
@@ -137,7 +151,7 @@ def handle_message(store: Store, chat_id: int, text: str):
              "<b>Vigilante de anexos</b>\n"
              "/agregar &lt;numero de procedimiento&gt; [alias]\n"
              "/quitar &lt;# de la lista, alias o numero&gt;\n"
-             "/lista\n/revisar\n\n"
+             "/lista\n/fechas [# de la lista]\n/revisar\n\n"
              "Tambien puedes mandar solo el numero, por ejemplo IO-89-L47-830124970-N-14-2026")
     elif cmd == "/agregar" or es_numero:
         parts = (rest if cmd == "/agregar" else text).split(None, 1)
@@ -167,6 +181,7 @@ def handle_message(store: Store, chat_id: int, text: str):
             store.data["docs"].pop(s["ref"], None)
             store.data["fails"].pop(s["ref"], None)
             store.data["seen"].pop(s["ref"], None)
+            store.data["crono"].pop(s["ref"], None)
         send(chat_id, f"Quitado: <code>{esc(s['ref'])}</code>")
     elif cmd == "/lista":
         mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
@@ -179,6 +194,29 @@ def handle_message(store: Store, chat_id: int, text: str):
             estado = f"{n} anexos/actas" if s["base"] else "pendiente de primera lectura"
             lines.append(f"{i}. <code>{esc(s['ref'])}</code> {esc(s['alias'])} ({estado})\n    {esc(_ultima(store, s['ref']))}")
         send(chat_id, "\n".join(lines))
+    elif cmd == "/fechas":
+        mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
+        if not mine:
+            send(chat_id, "No vigilas ningun procedimiento. Usa /agregar.")
+            return
+        if rest:  # cronograma completo de uno
+            s = _find(store, chat_id, rest)
+            c = store.data["crono"].get(s["ref"]) if s else None
+            if not s:
+                send(chat_id, "No lo encontre. Usa /lista y mandame el numero de la lista, el alias o el folio.")
+            elif not c:
+                send(chat_id, "Todavia no tengo el cronograma de ese procedimiento (se lee en la siguiente revision).")
+            else:
+                lineas = [f"• {esc(k)}: {esc(cr.fmt_fecha(v) if cr.parse_fecha(v) else v)}" for k, v in c.items()]
+                send(chat_id, f"<b>Cronograma</b> <code>{esc(s['ref'])}</code>\n" + "\n".join(lineas))
+            return
+        bloques = []
+        for i, s in enumerate(mine, 1):
+            c = store.data["crono"].get(s["ref"])
+            filas = cr.resumen(c) if c else []
+            cuerpo = "\n".join(f"   {esc(t)}: {esc(v)}" for t, v in filas) or "   (aun sin leer)"
+            bloques.append(f"{i}. <code>{esc(s['ref'])}</code> {esc(s['alias'])}\n{cuerpo}")
+        _enviar_por_partes(chat_id, bloques)
     elif cmd == "/revisar":
         store.force = True
         send(chat_id, "Revisando ahora...")
@@ -213,6 +251,20 @@ def interval_now() -> int:
     return POLL_SECONDS if 7 <= time.localtime().tm_hour < 21 else NIGHT_POLL_SECONDS
 
 
+def _revisar_cronograma(store: Store, ref: str, ahora, activos: list):
+    """Compara el cronograma leido con el guardado y avisa si cambio una fecha vigilada."""
+    if not cr.es_lectura_valida(ahora):
+        return  # pagina a medio cargar o sin cronograma: no tocar nada
+    antes = store.data["crono"].get(ref)
+    if antes:  # primera lectura = solo se guarda, sin aviso
+        for nombre, a, b in cr.cambios(antes, ahora):
+            for s in activos:
+                alias = f" ({esc(s['alias'])})" if s["alias"] else ""
+                send(s["chat"], f"<b>Cambio de fecha</b> en <code>{esc(ref)}</code>{alias}\n"
+                                f"{esc(cr.describir_cambio(nombre, a, b))}")
+    store.data["crono"][ref] = cr.mezclar(antes, ahora)
+
+
 def check_ref(store: Store, ref: str, fetch):
     subs = [s for s in store.data["subs"] if s["ref"] == ref]
     fails = store.data["fails"]
@@ -238,6 +290,8 @@ def check_ref(store: Store, ref: str, fetch):
                 send(s["chat"], f"No puedo leer <code>{esc(ref)}</code> desde hace varias revisiones: "
                                 f"{esc(str(e))[:200]}")
         return
+
+    _revisar_cronograma(store, ref, getattr(anexos, "cronograma", None), [s for s in subs if s["base"]])
 
     known = store.data["docs"].setdefault(ref, {})
     if not anexos and known:
@@ -270,8 +324,10 @@ def check_ref(store: Store, ref: str, fetch):
         else:
             s["base"] = True
             resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:25]) + ("\n..." if len(anexos) > 25 else "")
+            fechas = cr.resumen(store.data["crono"].get(ref) or {})
+            lin_f = ("\n\n<b>Fechas</b>\n" + "\n".join(f"{esc(t)}: {esc(v)}" for t, v in fechas)) if fechas else ""
             send(s["chat"], f"Base lista: {len(known)} anexos/actas actuales en <code>{esc(ref)}</code>.\n"
-                            f"Esto ya existia, solo aviso de lo que aparezca despues:\n{resumen}")
+                            f"Esto ya existia, solo aviso de lo que aparezca despues:\n{resumen}{lin_f}")
 
 
 def run_cycle(store: Store):
@@ -365,6 +421,13 @@ def probe(refs: list[str]) -> int:
             print(f"{len(docs)} anexos/actas en {ref}:")
             for d in docs:
                 print(f"  - {d.nombre} | {d.fecha}")
+            crono = getattr(docs, "cronograma", None)
+            if crono:
+                print("  CRONOGRAMA DE EVENTOS:")
+                for k, v in crono.items():
+                    print(f"    {k}: {v}")
+            else:
+                print("  (no pude leer el cronograma de eventos)")
     return codigo
 
 
