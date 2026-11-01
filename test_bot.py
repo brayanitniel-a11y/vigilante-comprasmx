@@ -321,7 +321,7 @@ assert por["Elaborar Preguntas"].fecha.isoformat() == "2026-11-22" and por["Elab
 assert por["EVENTO: JA"].fecha == datetime(2026, 11, 24, 9, 0) and por["Evento: PP"].fecha == datetime(2026, 12, 9, 9, 0)
 assert por["Evento: NF"].fecha == datetime(2026, 12, 29, 12, 0) and por["¿Visita?"].fecha is None
 assert por["Solicitar Apoyos"].fecha is None and por["Acta de cierre de JA"].fecha is None and not por["Acta de cierre de JA"].hecho
-assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "Equipo Medico"
+assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "Equipo Médico"
 assert pl.titulo == "LICITACIÓN LA-T-163-2026 Baja California" and not pl.avisos
 
 # la fecha de la tarea cambia a NF + FALLO cuando se cumple la hora de PP
@@ -383,4 +383,19 @@ assert lic.prefijo("LA-1-N-1-2026", {"tipo": "ADJUDICACIÓN DIRECTA"}) == "ADJUD
 assert lic.caracter("LA-50-GYR-050GYR003-T-163-2026", D163 | {"caracter": "INTERNACIONAL BAJO LA COBERTURA DE TRATADOS"}) == "Internacional bajo tratados"
 assert lic.caracter("LA-72-037-913055954-N-23-2026", {}) == "Nacional" and lic.caracter("LA-72-037-913055954-N-23-2026", {"caracter": "NACIONAL"}) == "Nacional"
 assert "Carácter: Internacional bajo tratados" in lic.texto_plan(pl), lic.texto_plan(pl)
+# 27) logica pura de TickTick: crear y actualizar respetando lo del usuario
+import ticktick as tk  # noqa: E402
+tn = tk.tarea_nueva(pl, "PID")
+assert tn["title"] == pl.titulo and tn["tags"] == ["LICITACIONES"] and tn["dueDate"] == "2026-12-09T09:00:00-0600" and len(tn["items"]) == 16
+assert tn["items"][3]["isAllDay"] and tn["items"][3]["startDate"].startswith("2026-11-22") and "startDate" not in tn["items"][0]
+usuario = {**tn, "content": "mi nota", "items": [{**i} for i in tn["items"]]}
+usuario["items"][0]["status"] = 1; usuario["items"][7]["status"] = 1
+nuevo_plan = lic.calcular(R, {**CE, "Fecha y hora de presentación y apertura de proposiciones": "16/12/2026 09:00",
+                              "Fecha y hora de junta de aclaraciones": "25/11/2026 09:00"}, D163, datetime(2026, 12, 16, 9, 0))
+t2, camb = tk.aplicar_plan(usuario, nuevo_plan)
+assert t2["dueDate"] == "2026-12-29T12:00:00-0600" and "FALLO" in t2["tags"] and t2["content"] == "mi nota"
+assert t2["items"][0]["status"] == 1 and t2["items"][7]["status"] == 1 and t2["items"][8]["status"] == 0   # estados del usuario intactos
+assert "EVENTO: JA" in camb and "Evento: PP" in camb  # el limite no cambia: manda el del portal (mas temprano)
+t3, camb3 = tk.aplicar_plan(t2, nuevo_plan)
+assert camb3 == [] and t3 == t2                                                                            # idempotente
 print("OK: todas las pruebas pasaron")
