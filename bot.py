@@ -24,6 +24,7 @@ import requests
 
 import cronograma as cr
 import licitacion as lic
+import ticktick as tk
 from fetcher import Anexo, Browser, NoEncontrado  # noqa: F401
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -43,7 +44,7 @@ class Store:
     def __init__(self, path: str):
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
-        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}}
+        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}, "tareas": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
@@ -51,6 +52,7 @@ class Store:
         self.data.setdefault("crono", {})
         self.data.setdefault("datos", {})
         self.data.setdefault("cierre", {})
+        self.data.setdefault("tareas", {})
         self._saved = self._dump()
 
     def _dump(self) -> str:
@@ -177,10 +179,13 @@ def handle_message(store: Store, chat_id: int, text: str):
         if _find(store, chat_id, ref):
             send(chat_id, "Ya estaba en tu lista.")
             return
-        store.data["subs"].append({"chat": chat_id, "ref": ref, "alias": alias, "base": False, "warned": False})
+        store.data["subs"].append({"chat": chat_id, "ref": ref, "alias": alias, "base": False, "warned": False,
+                                    "tarea": bool(os.environ.get("TICKTICK_TOKEN"))})
         store.force = True
+        extra = ("\nEn cuanto lea su cronograma creo la tarea en TickTick (lista Equipo Médico)."
+                 if os.environ.get("TICKTICK_TOKEN") else "")
         send(chat_id, f"Agregado: <code>{esc(ref)}</code> {esc(alias)}\n"
-                      "Tomo como base los anexos y actas actuales; solo te aviso de los nuevos.")
+                      f"Tomo como base los anexos y actas actuales; solo te aviso de los nuevos.{extra}")
     elif cmd == "/quitar":
         s = _find(store, chat_id, rest) if rest else None
         if not s:
@@ -194,7 +199,11 @@ def handle_message(store: Store, chat_id: int, text: str):
             store.data["crono"].pop(s["ref"], None)
             store.data["datos"].pop(s["ref"], None)
             store.data["cierre"].pop(s["ref"], None)
-        send(chat_id, f"Quitado: <code>{esc(s['ref'])}</code>")
+            tarea = store.data["tareas"].pop(s["ref"], None)
+        else:
+            tarea = None
+        send(chat_id, f"Quitado: <code>{esc(s['ref'])}</code>"
+                      + ("\nLa tarea de TickTick se queda como esta; ya no actualizo sus fechas." if tarea else ""))
     elif cmd == "/lista":
         mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
         if not mine:
@@ -299,6 +308,62 @@ def _revisar_cronograma(store: Store, ref: str, ahora, activos: list):
     store.data["crono"][ref] = cr.mezclar(antes, ahora)
 
 
+def _sync_tarea(store: Store, ref: str):
+    """Crea (o adopta) la tarea de TickTick de un procedimiento y mantiene sus fechas al dia.
+    Solo actua si el procedimiento se agrego con /agregar con el token puesto o ya tiene tarea."""
+    subs = [s for s in store.data["subs"] if s["ref"] == ref]
+    info = store.data["tareas"].get(ref)
+    if not os.environ.get("TICKTICK_TOKEN") or not subs or not (info or any(s.get("tarea") for s in subs)):
+        return
+    if info and info.get("perdida"):
+        return
+    crono, datos = store.data["crono"].get(ref), store.data["datos"].get(ref)
+    if not crono or not datos or not cr.es_lectura_valida(crono):
+        return  # aun no leo lo necesario
+    chat = subs[0]["chat"]
+    plan = lic.calcular(ref, crono, datos, ahora_mx(), cierre_ja=False)
+    try:
+        if not info:
+            dest = tk.proyecto_destino()
+            for t in tk.tareas_de_proyecto(dest["id"]):
+                if tk._norm(t.get("title")) == tk._norm(plan.titulo) and t.get("status", 0) == 0:
+                    store.data["tareas"][ref] = {"id": t["id"], "project": dest["id"]}
+                    send(chat, f"Ya existia la tarea <b>{esc(plan.titulo)}</b> en TickTick: la dejo como esta "
+                               "y solo mantengo sus fechas.")
+                    return
+            desc = f"{ref}\nCarácter: {plan.caracter}" if plan.caracter else ref
+            nueva = tk.crear(tk.tarea_nueva(plan, dest["id"], descripcion=desc))
+            store.data["tareas"][ref] = {"id": nueva["id"], "project": dest["id"]}
+            send(chat, f"<b>Tarea creada en TickTick</b>\n{esc(plan.titulo)} · {esc(plan.caracter)}\n"
+                       f"Lista: {esc(plan.lista)}")
+            return
+        try:
+            t = tk.obtener(info["project"], info["id"])
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (404, 400):
+                info["perdida"] = True
+                send(chat, f"No encuentro la tarea de <code>{esc(ref)}</code> en TickTick (¿la borraste?). "
+                           "Ya no la actualizo.")
+                return
+            raise
+        if t.get("status", 0) != 0:
+            return  # tarea completada: no se toca
+        t2, cambios = tk.aplicar_plan(t, plan)
+        if cambios:
+            tk.actualizar(t2)
+            print(f"[{ref}] tarea actualizada: {', '.join(cambios)}")
+        store.data["tareas"][ref].pop("err", None)
+    except Exception as e:  # noqa: BLE001
+        print(f"[{ref}] TickTick error: {e}")
+        inf = store.data["tareas"].setdefault(ref, {}) if info else None
+        if inf is not None:
+            inf["err"] = inf.get("err", 0) + 1
+        if not info and not store.data.setdefault("tk_err", {}).get(ref):
+            store.data["tk_err"][ref] = True
+            send(chat, f"No pude crear la tarea de <code>{esc(ref)}</code> en TickTick: {esc(str(e))[:150]}. "
+                       "Sigo intentando en cada revision.")
+
+
 def check_ref(store: Store, ref: str, fetch):
     subs = [s for s in store.data["subs"] if s["ref"] == ref]
     fails = store.data["fails"]
@@ -332,6 +397,7 @@ def check_ref(store: Store, ref: str, fetch):
     if anexos and any(re.search(r"cierre", a.nombre, re.I) and re.search(r"aclaraci|junta", a.nombre, re.I)
                       for a in anexos):
         store.data["cierre"][ref] = True   # no habra mas cambios en bases ni fechas
+    _sync_tarea(store, ref)
 
     known = store.data["docs"].setdefault(ref, {})
     if not anexos and known:

@@ -28,6 +28,7 @@ jobs:
     env:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
+      TICKTICK_TOKEN: ${{ secrets.TICKTICK_TOKEN }}
       STATE_PATH: state/state.json
       TZ: America/Mexico_City
     steps:

@@ -407,4 +407,56 @@ for i in real["items"]:
 r3, c3 = tk.aplicar_plan(real, pl)
 assert c3 == [], c3
 assert tk.instante(1795327200000).isoformat().startswith("2026-11-22T06:00") and tk._iso(1795327200000) == "2026-11-22T00:00:00-0600"
+# 29) /agregar crea la tarea en TickTick, mantiene fechas y respeta al usuario (API simulada en memoria)
+class FakeResp:
+    status_code = 404
+nube = {}
+def _crear(t):
+    t = dict(t); t["id"] = f"T{len(nube)+1}"; t["status"] = 0
+    t["tags"] = [g.lower() for g in t["tags"]]
+    nube[t["id"]] = t; return dict(t)
+def _obtener(pid, tid):
+    if tid not in nube:
+        e = bot.requests.HTTPError("404"); e.response = FakeResp(); raise e
+    return json.loads(json.dumps(nube[tid]))
+def _actualizar(t):
+    nube[t["id"]] = json.loads(json.dumps(t)); return t
+tk.proyecto_destino = lambda plantilla=None: {"id": "P1", "name": "Equipo Médico"}
+tk.tareas_de_proyecto = lambda pid: [dict(t) for t in nube.values()]
+tk.crear, tk.obtener, tk.actualizar = _crear, _obtener, _actualizar
+os.environ["TICKTICK_TOKEN"] = "x"
+REF7 = "LA-72-037-913055954-N-23-2026"
+site[REF7] = [Anexo("z1", "[ANEXOS] CONVOCATORIA (1 archivos)", "http://x/p")]
+datos_site[REF7] = cr.parse_pairs([["Tipo de procedimiento de contratación:", "LICITACIÓN PÚBLICA"], ["Carácter:", "NACIONAL"],
+                                   ["Entidad Federativa donde se llevará a cabo la contratación:", "HIDALGO"]])
+crono_site[REF7] = dict(CE)
+bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
+n = len(sent)
+bot.handle_message(store, 1, f"/agregar {REF7}")
+assert "creo la tarea" in sent[-1]
+bot.run_cycle(store)
+assert len(nube) == 1 and store.data["tareas"][REF7]["id"] == "T1", nube
+tarea = nube["T1"]; assert tarea["title"] == "LICITACIÓN LA-N-23-2026 Hidalgo" and "Nacional" in tarea["content"]
+assert any("Tarea creada en TickTick" in m and "Nacional" in m for m in sent[n:]), sent[n:]
+bot.run_cycle(store); assert len(nube) == 1                       # no duplica
+# el usuario marca un punto; difieren PP; llega la hora: se actualiza solo lo de fechas
+nube["T1"]["items"][0]["status"] = 1; nube["T1"]["content"] = "mi nota"
+crono_site[REF7] = {**CE, "Fecha y hora de presentación y apertura de proposiciones": "16/12/2026 09:00"}
+bot.ahora_mx = lambda: datetime(2026, 12, 16, 9, 30)
+bot.run_cycle(store)
+assert nube["T1"]["dueDate"] == "2026-12-29T12:00:00-0600" and "fallo" in [g.lower() for g in nube["T1"]["tags"]]
+assert nube["T1"]["items"][0]["status"] == 1 and nube["T1"]["content"] == "mi nota"
+# tarea completada o borrada: no se toca / se avisa una vez
+nube["T1"]["status"] = 2; crono_site[REF7] = {**CE, "Fecha y hora del acto del Fallo": "30/12/2026 12:00"}; bot.run_cycle(store)
+assert nube["T1"]["dueDate"] == "2026-12-29T12:00:00-0600"
+nube.clear(); store.data["tareas"][REF7].pop("perdida", None); m = len(sent); bot.run_cycle(store); bot.run_cycle(store)
+assert sum("No encuentro la tarea" in s for s in sent[m:]) == 1 and len(nube) == 0
+# un procedimiento ya existente en TickTick (tarea manual) se adopta sin duplicar
+bot.handle_message(store, 1, f"/quitar {REF7}")
+assert REF7 not in store.data["tareas"]
+nube["M1"] = {"id": "M1", "title": "LICITACIÓN LA-N-23-2026 Hidalgo", "status": 0, "tags": ["licitaciones"], "items": [], "content": "manual"}
+bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
+bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
+assert len(nube) == 1 and store.data["tareas"][REF7]["id"] == "M1" and nube["M1"]["content"] == "manual"
+os.environ.pop("TICKTICK_TOKEN")
 print("OK: todas las pruebas pasaron")
