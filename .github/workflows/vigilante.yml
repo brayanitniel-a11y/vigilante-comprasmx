@@ -85,7 +85,7 @@ jobs:
           TICKTICK_TOKEN: ${{ secrets.TICKTICK_TOKEN }}
         run: |
           mkdir -p debug
-          python ticktick.py 2>&1 | tee debug/ticktick.txt
+          python ticktick.py $(cat ticktick_modo.txt 2>/dev/null) 2>&1 | tee debug/ticktick.txt
 
       - name: Corrida normal
         if: ${{ steps.modo.outputs.probe == '' }}
