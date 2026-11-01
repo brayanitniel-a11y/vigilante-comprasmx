@@ -1,0 +1,24 @@
+{
+  "lista": "TRABAJO",
+  "etiqueta": "LICITACIONES",
+  "etiqueta_fallo": "FALLO",
+  "tolerancia_preguntas_horas": 25,
+  "items": [
+    {"titulo": "Solicitar Marcas y Modelos"},
+    {"titulo": "Solicitar Referencias"},
+    {"titulo": "Solicitar Apoyos"},
+    {"titulo": "Elaborar Preguntas", "auto": "elaborar_preguntas"},
+    {"titulo": "¿Visita?", "auto": "visita"},
+    {"titulo": "Limite para envío de Preguntas", "auto": "limite_preguntas"},
+    {"titulo": "EVENTO: JA", "auto": "ja"},
+    {"titulo": "Acta de cierre de JA", "auto": "cierre_ja"},
+    {"titulo": "Elaborar P Económica"},
+    {"titulo": "Elaborar P Legal"},
+    {"titulo": "Elaborar P Técnica"},
+    {"titulo": "Integrar PL"},
+    {"titulo": "Integrar PT"},
+    {"titulo": "Cargar Propuestas"},
+    {"titulo": "Evento: PP", "auto": "pp"},
+    {"titulo": "Evento: NF", "auto": "nf"}
+  ]
+}

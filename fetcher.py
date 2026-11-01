@@ -64,11 +64,12 @@ JS_CAMBIO_PRIMERA = """(prev) => {
 }"""
 
 
+# Valor de una etiqueta: el primer hijo del mismo contenedor que no sea la etiqueta ni <br> (es un <label> o un <span>).
 JS_CRONOGRAMA = """() => {
   const t = [...document.querySelectorAll('.titulo-seccion')].find(x => /CRONOGRAMA/i.test(x.innerText || ''));
   if (!t || !t.parentElement) return null;
   return [...t.parentElement.querySelectorAll('label.font-bold')].map(l => {
-    const v = l.parentElement ? l.parentElement.querySelector('label:not(.font-bold)') : null;
+    const v = l.parentElement ? [...l.parentElement.children].find(c => c !== l && c.tagName !== 'BR') : null;
     return [(l.innerText || '').trim(), v ? (v.innerText || '').trim() : ''];
   });
 }"""
@@ -78,10 +79,19 @@ JS_CRONOGRAMA_LISTO = """() => {
   return !!t && !!t.parentElement && t.parentElement.querySelectorAll('label.font-bold').length > 0;
 }"""
 
+# Todos los pares etiqueta/valor de la pagina (estatus, dependencia, ramo, entidad federativa, ...)
+JS_DATOS = """() => [...document.querySelectorAll('label.font-bold')].map(l => {
+  const p = l.parentElement;
+  if (!p) return null;
+  const v = [...p.children].find(c => c !== l && c.tagName !== 'BR');
+  return [(l.innerText || '').trim(), v ? (v.innerText || '').trim() : ''];
+}).filter(Boolean)"""
+
 
 class Lectura(list):
     """Lista de Anexo + el cronograma de eventos leido en la misma pagina (dict, o None si no se pudo leer)."""
     cronograma = None
+    datos = None   # dict con estatus, dependencia, ramo, unidad compradora, entidad federativa, ...
 
 
 class NoEncontrado(Exception):
@@ -307,6 +317,8 @@ class Browser:
         lectura = Lectura(parse_tablas(raw, proc_url))
         pares = p.evaluate(JS_CRONOGRAMA)
         lectura.cronograma = parse_pairs(pares) if pares else None
+        todos = parse_pairs(p.evaluate(JS_DATOS))
+        lectura.datos = {k: v for k, v in todos.items() if k not in (lectura.cronograma or {})} or None
         return lectura
 
     def _filas_anexos_todas_las_paginas(self) -> list[list[str]]:
