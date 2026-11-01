@@ -93,9 +93,31 @@ def identificador(datos: dict) -> str:
     return ESPECIALES.get(clave) or _capitalizar(ent)
 
 
+def prefijo(ref: str, datos: dict) -> str:
+    """Prefijo segun la clasificacion del portal ("Tipo de procedimiento"); si no la trae, segun las siglas."""
+    t = _sin_acentos((datos or {}).get("tipo", "")).upper()
+    for clave, pref in (("LICITACION", "LICITACIÓN"), ("INVITACION", "INVITACIÓN"), ("ADJUDICACION", "ADJUDICACIÓN")):
+        if clave in t:
+            return pref
+    sig = (ref or "").upper().split("-")[0]
+    return PREFIJOS.get(sig, sig)
+
+
+def caracter(ref: str, datos: dict) -> str:
+    """Nacional / Internacional bajo tratados / Internacional abierta (del portal; si falta, de la letra N-T-I)."""
+    c = _sin_acentos((datos or {}).get("caracter", "")).upper()
+    if "TRATADOS" in c:
+        return "Internacional bajo tratados"
+    if "ABIERT" in c:
+        return "Internacional abierta"
+    if c.startswith("NACIONAL"):
+        return "Nacional"
+    letra = (nombre_corto(ref).split("-") + ["", ""])[1]
+    return {"N": "Nacional", "T": "Internacional bajo tratados", "I": "Internacional abierta"}.get(letra, "")
+
+
 def titulo(ref: str, datos: dict) -> str:
-    tipo = (ref or "").upper().split("-")[0]
-    partes = [PREFIJOS.get(tipo, tipo), nombre_corto(ref), identificador(datos)]
+    partes = [prefijo(ref, datos), nombre_corto(ref), identificador(datos)]
     return " ".join(p for p in partes if p)
 
 
@@ -126,6 +148,7 @@ class Plan:
     fecha_tarea: datetime | None
     items: list[Item]
     avisos: list[str] = field(default_factory=list)
+    caracter: str = ""
 
 
 def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: bool = False,
@@ -172,13 +195,14 @@ def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: boo
     for nombre, v in (("la junta de aclaraciones", ja), ("la presentación y apertura", pp), ("el fallo", nf)):
         if not v:
             avisos.append(f"ComprasMX no trae la fecha de {nombre}")
-    return Plan(titulo(ref, datos), pl["lista"], etiquetas, fecha_tarea, items, avisos)
+    return Plan(titulo(ref, datos), pl["lista"], etiquetas, fecha_tarea, items, avisos, caracter(ref, datos))
 
 
 def texto_plan(plan: Plan) -> str:
     """Resumen legible (sin formato HTML)."""
     lineas = [plan.titulo,
               f"Lista: {plan.lista} | Etiquetas: {', '.join(plan.etiquetas)}",
+              f"Carácter: {plan.caracter or '(sin dato)'}",
               f"Fecha de la tarea: {cr.fmt_dt(plan.fecha_tarea) if plan.fecha_tarea else '(sin fecha)'}",
               ""]
     for it in plan.items:
