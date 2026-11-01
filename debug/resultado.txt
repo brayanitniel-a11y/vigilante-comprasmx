@@ -1,0 +1,43 @@
+=== LA-72-037-913055954-N-23-2026
+6 anexos/actas en LA-72-037-913055954-N-23-2026:
+  - [ANEXOS] CONVOCATORIA (1 archivos) | 
+  - [ANEXOS] ANEXO TÉCNICO (1 archivos) | 
+  - [ANEXOS] MODELO DE CONTRATO (1 archivos) | 
+  - [ANEXOS] ANEXOS DE CONVOCATORIA — BASES DEL PROCEDIMIENTO (1 archivos) | 
+  - [ANEXOS] ACTA JUNTA DE ACLARACIONES (1 archivos) | 
+  - [ANEXOS] ACTA DE APERTURA DE PROPOSICIONES (1 archivos) | 
+  CRONOGRAMA DE EVENTOS:
+    Fecha y hora de publicación: 20/10/2026 07:52
+    Fecha y hora de presentación y apertura de proposiciones: 30/10/2026 12:00
+    Lugar de apertura de proposiciones: BLVD. PANORÁMICO CUBITOS-LA PAZ N° 407, COL. ADOLFO LÓPEZ MATEOS, C.P. 42094, PACHUCA DE SOTO, HIDALGO
+    Fecha y hora de junta de aclaraciones: 23/10/2026 14:00
+    Fecha y hora límite para envío de aclaraciones a través de Compras MX: 22/10/2026 14:00
+    Lugar de la junta de aclaraciones: BLVD. PANORÁMICO CUBITOS-LA PAZ N° 407, COL. ADOLFO LÓPEZ MATEOS, C.P. 42094, PACHUCA DE SOTO, HIDALGO
+    Plazo del procedimiento de contratación: RECORTADO
+    Justificación del plazo recortado: ADQUIRIR EQUIPOS PARA EL FORTALECIMIENTO DE LAS ACCIONES DE DETECCION OPORTUNA DE ALTERACIONES AUDITIVAS EN RECIEN NACIDOS Y POBLACION INFANTIL COMO SON: EQUIPO DE POTENCIALES EVOCADOS Y EQUIPO DE EMI
+    Fecha y hora del acto del Fallo: 04/11/2026 13:00
+    Lugar del acto del Fallo: BLVD. PANORÁMICO CUBITOS-LA PAZ N° 407, COL. ADOLFO LÓPEZ MATEOS, C.P. 42094, PACHUCA DE SOTO, HIDALGO
+    Fecha estimada del inicio del contrato: 06/11/2026
+  DATOS: {'estatus': 'EN APERTURA', 'dependencia': '072037 - SERVICIOS DE SALUD DE HIDALGO', 'ramo': '72 - HIDALGO', 'unidad': '913055954 SUBSECRETARÍA DE ADMINISTRACION, FINANZAS Y PLANEACIÓN', 'nombre': 'LA-72-037-913055954-N-23-2026 EQUIPO MÉDICO Y DE LABORATORIO', 'tipo': 'LICITACIÓN PÚBLICA', 'entidad': 'HIDALGO', 'caracter': 'NACIONAL'}
+  PLAN DE LA TAREA:
+    LICITACIÓN LA-N-23-2026 Hidalgo
+    Lista: Equipo Médico | Etiquetas: LICITACIONES, FALLO
+    Carácter: Nacional
+    Fecha de la tarea: miércoles 04/11/2026 13:00
+    
+    ☐ Solicitar Marcas y Modelos
+    ☐ Solicitar Referencias
+    ☐ Solicitar Apoyos
+    ☐ Elaborar Preguntas — miércoles 21/10/2026 (sin hora)
+    ☐ ¿Visita?
+    ☐ Limite para envío de Preguntas — jueves 22/10/2026 13:00
+    ☐ EVENTO: JA — viernes 23/10/2026 14:00
+    ☐ Acta de cierre de JA
+    ☐ Elaborar P Económica
+    ☐ Elaborar P Legal
+    ☐ Elaborar P Técnica
+    ☐ Integrar PL
+    ☐ Integrar PT
+    ☐ Cargar Propuestas
+    ☐ Evento: PP — viernes 30/10/2026 12:00
+    ☐ Evento: NF — miércoles 04/11/2026 13:00

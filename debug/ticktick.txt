@@ -1,0 +1,23 @@
+lista destino: Equipo Médico (carpeta 6ae6dc6d0834ea9e982e5bb1)
+crear -> id 6ae74ee58f0847e165eda2ae | items devueltos: 16 | tags: ['licitaciones'] | due: 2026-12-09T15:00:00.000+0000
+leer -> items: 16 | due: 2026-12-09T15:00:00.000+0000 | tags: ['licitaciones'] | tz: America/Mexico_City
+    0 Solicitar Marcas y Modelos | None | False
+    0 Solicitar Referencias | None | False
+    0 Solicitar Apoyos | None | False
+    0 Elaborar Preguntas | 1795327200000 | True
+    0 ¿Visita? | None | False
+    0 Limite para envío de Preguntas | 1795442400000 | False
+    0 EVENTO: JA | 1795532400000 | False
+    0 Acta de cierre de JA | None | False
+    0 Elaborar P Económica | None | False
+    0 Elaborar P Legal | None | False
+    0 Elaborar P Técnica | None | False
+    0 Integrar PL | None | False
+    0 Integrar PT | None | False
+    0 Cargar Propuestas | None | False
+    0 Evento: PP | 1796828400000 | False
+    0 Evento: NF | 1798567200000 | False
+cambios a aplicar: ['fecha de la tarea', 'etiqueta FALLO agregada', 'Evento: PP']
+final -> items: 16 | due: 2026-12-29T18:00:00.000+0000 | tags: ['licitaciones', 'FALLO'] | item0 status: 1 | content: 'nota del usuario'
+borrar -> HTTP 200
+RESULTADO: OK
