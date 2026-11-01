@@ -321,7 +321,7 @@ assert por["Elaborar Preguntas"].fecha.isoformat() == "2026-11-22" and por["Elab
 assert por["EVENTO: JA"].fecha == datetime(2026, 11, 24, 9, 0) and por["Evento: PP"].fecha == datetime(2026, 12, 9, 9, 0)
 assert por["Evento: NF"].fecha == datetime(2026, 12, 29, 12, 0) and por["¿Visita?"].fecha is None
 assert por["Solicitar Apoyos"].fecha is None and por["Acta de cierre de JA"].fecha is None and not por["Acta de cierre de JA"].hecho
-assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "TRABAJO"
+assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "Equipo Medico"
 assert pl.titulo == "LICITACIÓN LA-T-163-2026 Baja California" and not pl.avisos
 
 # la fecha de la tarea cambia a NF + FALLO cuando se cumple la hora de PP
@@ -377,4 +377,10 @@ assert "☑ Acta de cierre de JA" in sent[-1], sent[-1]
 bot.handle_message(store, 1, f"/quitar {REF6}")
 assert REF6 not in store.data["datos"] and REF6 not in store.data["cierre"]
 
+# 26) prefijo segun el portal y caracter
+assert lic.prefijo("XX-1-N-1-2026", {"tipo": "INVITACIÓN A CUANDO MENOS TRES PERSONAS"}) == "INVITACIÓN"
+assert lic.prefijo("LA-1-N-1-2026", {"tipo": "ADJUDICACIÓN DIRECTA"}) == "ADJUDICACIÓN" and lic.prefijo("LA-1-N-1-2026", {}) == "LICITACIÓN"
+assert lic.caracter("LA-50-GYR-050GYR003-T-163-2026", D163 | {"caracter": "INTERNACIONAL BAJO LA COBERTURA DE TRATADOS"}) == "Internacional bajo tratados"
+assert lic.caracter("LA-72-037-913055954-N-23-2026", {}) == "Nacional" and lic.caracter("LA-72-037-913055954-N-23-2026", {"caracter": "NACIONAL"}) == "Nacional"
+assert "Carácter: Internacional bajo tratados" in lic.texto_plan(pl), lic.texto_plan(pl)
 print("OK: todas las pruebas pasaron")

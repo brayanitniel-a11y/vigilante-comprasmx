@@ -280,6 +280,11 @@ def interval_now() -> int:
     return POLL_SECONDS if 7 <= time.localtime().tm_hour < 21 else NIGHT_POLL_SECONDS
 
 
+def _car(store: Store, ref: str) -> str:
+    c = lic.caracter(ref, store.data["datos"].get(ref, {}))
+    return f" · {esc(c)}" if c else ""
+
+
 def _revisar_cronograma(store: Store, ref: str, ahora, activos: list):
     """Compara el cronograma leido con el guardado y avisa si cambio una fecha vigilada."""
     if not cr.es_lectura_valida(ahora):
@@ -289,7 +294,7 @@ def _revisar_cronograma(store: Store, ref: str, ahora, activos: list):
         for nombre, a, b in cr.cambios(antes, ahora):
             for s in activos:
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
-                send(s["chat"], f"<b>Cambio de fecha</b> en <code>{esc(ref)}</code>{alias}\n"
+                send(s["chat"], f"<b>Cambio de fecha</b> en <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n"
                                 f"{esc(cr.describir_cambio(nombre, a, b))}")
     store.data["crono"][ref] = cr.mezclar(antes, ahora)
 
@@ -355,7 +360,7 @@ def check_ref(store: Store, ref: str, fetch):
                     for a in new
                 )
                 link = f"\n{esc(new[0].url)}" if new[0].url else ""
-                send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}\n{body}{link}")
+                send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n{body}{link}")
         else:
             s["base"] = True
             resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:25]) + ("\n..." if len(anexos) > 25 else "")

@@ -1,5 +1,6 @@
 {
-  "lista": "TRABAJO",
+  "carpeta": "licitaciones",
+  "lista": "Equipo Medico",
   "etiqueta": "LICITACIONES",
   "etiqueta_fallo": "FALLO",
   "tolerancia_preguntas_horas": 25,

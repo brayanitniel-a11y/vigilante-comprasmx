@@ -78,6 +78,15 @@ jobs:
           set -o pipefail
           python bot.py probe $PROBE 2>&1 | tee debug/resultado.txt
 
+      - name: Sonda TickTick (solo lectura)
+        if: ${{ steps.modo.outputs.probe != '' }}
+        continue-on-error: true
+        env:
+          TICKTICK_TOKEN: ${{ secrets.TICKTICK_TOKEN }}
+        run: |
+          mkdir -p debug
+          python ticktick.py 2>&1 | tee debug/ticktick.txt
+
       - name: Corrida normal
         if: ${{ steps.modo.outputs.probe == '' }}
         run: python bot.py once
