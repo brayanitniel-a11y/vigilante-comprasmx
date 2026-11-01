@@ -7,6 +7,8 @@ os.environ["TELEGRAM_TOKEN"] = "x"
 import bot  # noqa: E402
 from fetcher import Anexo, Lectura, NoEncontrado  # noqa: E402
 import cronograma as cr  # noqa: E402
+import licitacion as lic  # noqa: E402
+from datetime import datetime  # noqa: E402
 
 bot.PAUSE = (0, 0)
 bot.ALLOWED = {1}
@@ -16,6 +18,7 @@ bot.send = lambda chat, text: sent.append(text)
 site = {}          # numero -> lista de Anexo (el "sitio" simulado)
 broken = set()     # numeros que fallan con error
 crono_site = {}    # numero -> dict del cronograma (None = la pagina no lo trajo)
+datos_site = {}    # numero -> dict de datos generales de la pagina
 
 
 @contextlib.contextmanager
@@ -27,6 +30,7 @@ def fake_fetcher(debug=False):
             raise NoEncontrado(ref)
         lec = Lectura(site[ref])
         lec.cronograma = crono_site.get(ref)
+        lec.datos = datos_site.get(ref)
         return lec
     yield fetch
 
@@ -226,11 +230,21 @@ crono_site[REF5] = {**C, APER: "12/11/2026 12:00"}
 bot.run_cycle(store)
 assert "mismo día; cambia la hora" in sent[-1], sent[-1]
 
-# 17) fechas que NO se vigilan (junta, fallo) se guardan pero no avisan
+# 17) ahora se vigilan todas las fechas importantes (junta, fallo, limite, visita); lo demas se guarda sin avisar
+JA_L = "Fecha y hora de junta de aclaraciones"
+NF_L = "Fecha y hora del acto del Fallo"
 n = len(sent)
-crono_site[REF5] = {**C, APER: "12/11/2026 12:00", "Fecha y hora de junta de aclaraciones": "25/09/2026 10:00"}
+crono_site[REF5] = {**C, APER: "12/11/2026 12:00", JA_L: "25/09/2026 10:00"}
 bot.run_cycle(store)
-assert len(sent) == n and store.data["crono"][REF5]["Fecha y hora de junta de aclaraciones"] == "25/09/2026 10:00"
+assert len(sent) == n + 1 and "fecha de la junta de aclaraciones, del jueves 24/09/2026 12:00 al viernes 25/09/2026 10:00" in sent[-1], sent[-1]
+crono_site[REF5] = {**C, APER: "12/11/2026 12:00", JA_L: "25/09/2026 10:00", NF_L: "20/11/2026 16:00"}
+bot.run_cycle(store)
+assert "fecha del acto del fallo, del viernes 13/11/2026 16:00 al viernes 20/11/2026 16:00" in sent[-1] and "Diferida 7 días" in sent[-1], sent[-1]
+n = len(sent)
+crono_site[REF5] = {**C, APER: "12/11/2026 12:00", JA_L: "25/09/2026 10:00", NF_L: "20/11/2026 16:00",
+                    "Lugar del acto del Fallo": "OTRO LUGAR", "Fecha estimada del inicio del contrato": "01/12/2026"}
+bot.run_cycle(store)
+assert len(sent) == n                                   # lugares y fecha de contrato no avisan
 
 # 18) lectura incompleta o sin cronograma: no avisa ni borra lo guardado
 for malo in (None, {}, {k: "" for k in C}, {APER: ""}):
@@ -263,5 +277,104 @@ big = [f"{i}. bloque " + "x" * 400 for i in range(20)]
 sent_antes = len(sent)
 bot._enviar_por_partes(1, big)
 assert len(sent) - sent_antes >= 3 and all(len(m) <= 4096 for m in sent[sent_antes:])
+
+# 21) nombre corto, identificador de lugar y titulo
+assert lic.nombre_corto("LA-50-GYR-050GYR003-T-163-2026") == "LA-T-163-2026"
+assert lic.nombre_corto("IO-89-L47-830124970-N-14-2026") == "IO-N-14-2026"
+assert lic.nombre_corto("raro") == "RARO"
+D163 = {"dependencia": "050GYR - INSTITUTO MEXICANO DEL SEGURO SOCIAL", "ramo": "50 - INSTITUTO MEXICANO DEL SEGURO SOCIAL",
+        "entidad": "BAJA CALIFORNIA"}
+D730 = {"dependencia": "007000 - SECRETARIA DE LA DEFENSA NACIONAL", "ramo": "07 - DEFENSA NACIONAL", "entidad": "CIUDAD DE MÉXICO"}
+assert lic.titulo("LA-50-GYR-050GYR003-T-163-2026", D163) == "LICITACIÓN LA-T-163-2026 Baja California"
+assert lic.titulo("LA-07-110-007000999-T-730-2026", D730) == "LICITACIÓN LA-T-730-2026 SEDENA"   # SEDENA gana sobre la entidad
+assert lic.identificador({"ramo": "50 - IMSS", "entidad": "CIUDAD DE MÉXICO"}) == "CDMX"
+assert lic.identificador({"entidad": "MÉXICO"}) == "EDOMEX" and lic.identificador({"entidad": "ESTADO DE MÉXICO"}) == "EDOMEX"
+assert lic.identificador({"entidad": "COAHUILA DE ZARAGOZA"}) == "Coahuila de Zaragoza"
+assert lic.identificador({"entidad": "NUEVO LEÓN"}) == "Nuevo León" and lic.identificador({}) == ""
+assert lic.titulo("LA-50-GYR-050GYR003-T-163-2026", {}) == "LICITACIÓN LA-T-163-2026"
+assert lic.titulo("IO-89-L47-830124970-N-14-2026", {"entidad": "HIDALGO"}) == "INVITACIÓN IO-N-14-2026 Hidalgo"
+dd = lic.desambiguar({"LA-50-GYR-050GYR003-T-163-2026": "LICITACIÓN LA-T-163-2026 Hidalgo",
+                      "LA-12-AAA-012AAA001-T-163-2026": "LICITACIÓN LA-T-163-2026 Hidalgo", "X": "otro"})
+assert dd["LA-50-GYR-050GYR003-T-163-2026"].endswith("(050GYR003)") and dd["X"] == "otro"
+
+# 22) extraer datos generales de la pagina
+todos = cr.parse_pairs([["Estatus del procedimiento de contratación:", "EN ACLARACIONES"], ["Ramo:", "07 - DEFENSA NACIONAL"],
+                        ["Entidad Federativa donde se llevará a cabo la contratación:", "CIUDAD DE MÉXICO"],
+                        ["Carácter:", "INTERNACIONAL BAJO LA COBERTURA DE TRATADOS"], ["Código del expediente:", "E-2026-1"]])
+dx = lic.extraer_datos(todos)
+assert dx == {"estatus": "EN ACLARACIONES", "ramo": "07 - DEFENSA NACIONAL", "entidad": "CIUDAD DE MÉXICO",
+              "caracter": "INTERNACIONAL BAJO LA COBERTURA DE TRATADOS"}, dx
+
+# 23) plan de la tarea con el ejemplo de la captura del usuario (JA 24 nov 9:00, PP 9 dic 9:00, NF 29 dic 12:00)
+CE = {"Fecha y hora de junta de aclaraciones": "24/11/2026 09:00",
+      "Fecha y hora límite para envío de aclaraciones a través de Compras MX": "23/11/2026 09:00",
+      "Fecha y hora de presentación y apertura de proposiciones": "09/12/2026 09:00",
+      "Fecha y hora del acto del Fallo": "29/12/2026 12:00"}
+R = "LA-50-GYR-050GYR003-T-163-2026"
+pl = lic.calcular(R, CE, D163, datetime(2026, 10, 31, 12, 0))
+por = {i.titulo: i for i in pl.items}
+assert [i.titulo for i in pl.items][:8] == ["Solicitar Marcas y Modelos", "Solicitar Referencias", "Solicitar Apoyos", "Elaborar Preguntas",
+                                            "¿Visita?", "Limite para envío de Preguntas", "EVENTO: JA", "Acta de cierre de JA"]
+assert len(pl.items) == 16 and pl.items[-1].titulo == "Evento: NF"
+assert por["Limite para envío de Preguntas"].fecha == datetime(2026, 11, 23, 8, 0)         # JA - 25 h
+assert por["Elaborar Preguntas"].fecha.isoformat() == "2026-11-22" and por["Elaborar Preguntas"].todo_el_dia
+assert por["EVENTO: JA"].fecha == datetime(2026, 11, 24, 9, 0) and por["Evento: PP"].fecha == datetime(2026, 12, 9, 9, 0)
+assert por["Evento: NF"].fecha == datetime(2026, 12, 29, 12, 0) and por["¿Visita?"].fecha is None
+assert por["Solicitar Apoyos"].fecha is None and por["Acta de cierre de JA"].fecha is None and not por["Acta de cierre de JA"].hecho
+assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "TRABAJO"
+assert pl.titulo == "LICITACIÓN LA-T-163-2026 Baja California" and not pl.avisos
+
+# la fecha de la tarea cambia a NF + FALLO cuando se cumple la hora de PP
+antes_pp = lic.calcular(R, CE, D163, datetime(2026, 12, 9, 8, 59))
+assert antes_pp.fecha_tarea == datetime(2026, 12, 9, 9, 0) and antes_pp.etiquetas == ["LICITACIONES"]
+despues = lic.calcular(R, CE, D163, datetime(2026, 12, 9, 9, 0))
+assert despues.fecha_tarea == datetime(2026, 12, 29, 12, 0) and despues.etiquetas == ["LICITACIONES", "FALLO"]
+# si difieren la PP despues, el plan se recalcula solo (la tarea vuelve a PP y se quita FALLO)
+dif = lic.calcular(R, {**CE, "Fecha y hora de presentación y apertura de proposiciones": "16/12/2026 09:00"}, D163, datetime(2026, 12, 9, 10, 0))
+assert dif.fecha_tarea == datetime(2026, 12, 16, 9, 0) and dif.etiquetas == ["LICITACIONES"]
+
+# limite: si ComprasMX trae uno mas temprano que 24 h antes, manda ese menos 1 h
+temprano = lic.calcular(R, {**CE, "Fecha y hora límite para envío de aclaraciones a través de Compras MX": "22/11/2026 09:00"}, D163, datetime(2026, 10, 31))
+pt = {i.titulo: i for i in temprano.items}
+assert pt["Limite para envío de Preguntas"].fecha == datetime(2026, 11, 22, 8, 0) and pt["Elaborar Preguntas"].fecha.isoformat() == "2026-11-21"
+# sin limite propio de ComprasMX: solo JA - 25 h
+solo_ja = lic.calcular(R, {k: v for k, v in CE.items() if "límite" not in k}, D163, datetime(2026, 10, 31))
+assert {i.titulo: i for i in solo_ja.items}["Limite para envío de Preguntas"].fecha == datetime(2026, 11, 23, 8, 0)
+# visita con fecha
+vis = lic.calcular(R, {**CE, "Fecha y hora de la visita a las instalaciones": "18/11/2026 10:00"}, D163, datetime(2026, 10, 31))
+assert {i.titulo: i for i in vis.items}["¿Visita?"].fecha == datetime(2026, 11, 18, 10, 0)
+# faltan fechas: avisa y deja ese item sin fecha
+falta = lic.calcular(R, {"Fecha y hora de publicación": "01/10/2026 10:00"}, D163, datetime(2026, 10, 31))
+assert len(falta.avisos) == 3 and {i.titulo: i for i in falta.items}["EVENTO: JA"].fecha is None and falta.fecha_tarea is None
+# acta de cierre marcada
+assert {i.titulo: i for i in lic.calcular(R, CE, D163, datetime(2026, 10, 31), cierre_ja=True).items}["Acta de cierre de JA"].hecho
+txt = lic.texto_plan(pl)
+assert "LICITACIÓN LA-T-163-2026 Baja California" in txt and "☐ Limite para envío de Preguntas — lunes 23/11/2026 08:00" in txt, txt
+assert "☐ Elaborar Preguntas — domingo 22/11/2026 (sin hora)" in txt and "Fecha de la tarea: miércoles 09/12/2026 09:00" in txt, txt
+
+# 24) /plan en el bot: lee datos y cronograma guardados, calcula con la hora de Mexico
+bot.ahora_mx = lambda: datetime(2026, 10, 31, 12, 0)
+datos_site[REF6] = {"Estatus del procedimiento de contratación:": "EN ACLARACIONES", "Ramo": "50 - IMSS",
+                    "Dependencia o Entidad": "050GYR - IMSS", "Entidad Federativa donde se llevará a cabo la contratación": "HIDALGO"}
+datos_site[REF6] = cr.parse_pairs([[k, v] for k, v in datos_site[REF6].items()])
+crono_site[REF6] = dict(CE)
+bot.run_cycle(store)
+assert store.data["datos"][REF6]["entidad"] == "HIDALGO" and store.data["datos"][REF6]["estatus"] == "EN ACLARACIONES"
+bot.handle_message(store, 1, "/plan")        # varios vigilados -> pide cual
+assert "Dime cual" in sent[-1]
+bot.handle_message(store, 1, f"/plan {REF6}")
+assert "Asi quedaria" in sent[-1] and "LICITACIÓN LA-T-164-2026 Hidalgo" in sent[-1] and "☐ EVENTO: JA — martes 24/11/2026 09:00" in sent[-1], sent[-1]
+bot.handle_message(store, 1, "/plan 99")
+assert "Dime cual" in sent[-1]
+
+# 25) se detecta el acta de cierre de la JA: la casilla queda marcada
+assert not store.data["cierre"].get(REF6)
+site[REF6].append(Anexo("c1", "[ANEXOS] ACTA DE CIERRE DE JUNTA DE ACLARACIONES (1 archivos)", "http://x/p"))
+bot.run_cycle(store)
+assert store.data["cierre"][REF6] is True
+bot.handle_message(store, 1, f"/plan {REF6}")
+assert "☑ Acta de cierre de JA" in sent[-1], sent[-1]
+bot.handle_message(store, 1, f"/quitar {REF6}")
+assert REF6 not in store.data["datos"] and REF6 not in store.data["cierre"]
 
 print("OK: todas las pruebas pasaron")

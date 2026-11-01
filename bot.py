@@ -17,10 +17,13 @@ import random
 import re
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
 import cronograma as cr
+import licitacion as lic
 from fetcher import Anexo, Browser, NoEncontrado  # noqa: F401
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -40,12 +43,14 @@ class Store:
     def __init__(self, path: str):
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
-        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}}
+        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
         self.data.setdefault("seen", {})
         self.data.setdefault("crono", {})
+        self.data.setdefault("datos", {})
+        self.data.setdefault("cierre", {})
         self._saved = self._dump()
 
     def _dump(self) -> str:
@@ -108,6 +113,11 @@ def _find(store: Store, chat_id: int, token: str):
     return None
 
 
+def ahora_mx() -> datetime:
+    """Hora actual en Ciudad de Mexico, sin zona (igual que las fechas que muestra ComprasMX)."""
+    return datetime.now(ZoneInfo("America/Mexico_City")).replace(tzinfo=None)
+
+
 def _enviar_por_partes(chat_id: int, bloques: list[str], limite: int = 3500):
     """Telegram corta los mensajes de mas de 4096 caracteres: se manda en varias partes."""
     actual = ""
@@ -151,7 +161,7 @@ def handle_message(store: Store, chat_id: int, text: str):
              "<b>Vigilante de anexos</b>\n"
              "/agregar &lt;numero de procedimiento&gt; [alias]\n"
              "/quitar &lt;# de la lista, alias o numero&gt;\n"
-             "/lista\n/fechas [# de la lista]\n/revisar\n\n"
+             "/lista\n/fechas [# de la lista]\n/plan [# de la lista]\n/revisar\n\n"
              "Tambien puedes mandar solo el numero, por ejemplo IO-89-L47-830124970-N-14-2026")
     elif cmd == "/agregar" or es_numero:
         parts = (rest if cmd == "/agregar" else text).split(None, 1)
@@ -182,6 +192,8 @@ def handle_message(store: Store, chat_id: int, text: str):
             store.data["fails"].pop(s["ref"], None)
             store.data["seen"].pop(s["ref"], None)
             store.data["crono"].pop(s["ref"], None)
+            store.data["datos"].pop(s["ref"], None)
+            store.data["cierre"].pop(s["ref"], None)
         send(chat_id, f"Quitado: <code>{esc(s['ref'])}</code>")
     elif cmd == "/lista":
         mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
@@ -217,6 +229,23 @@ def handle_message(store: Store, chat_id: int, text: str):
             cuerpo = "\n".join(f"   {esc(t)}: {esc(v)}" for t, v in filas) or "   (aun sin leer)"
             bloques.append(f"{i}. <code>{esc(s['ref'])}</code> {esc(s['alias'])}\n{cuerpo}")
         _enviar_por_partes(chat_id, bloques)
+    elif cmd == "/plan":
+        mine = [s for s in store.data["subs"] if s["chat"] == chat_id]
+        if not mine:
+            send(chat_id, "No vigilas ningun procedimiento. Usa /agregar.")
+            return
+        s = _find(store, chat_id, rest) if rest else (mine[0] if len(mine) == 1 else None)
+        if not s:
+            send(chat_id, "Dime cual: /plan <# de la lista, alias o folio>. Usa /lista para ver los numeros.")
+            return
+        c = store.data["crono"].get(s["ref"])
+        if not c:
+            send(chat_id, "Todavia no tengo el cronograma de ese procedimiento (se lee en la siguiente revision).")
+            return
+        plan = lic.calcular(s["ref"], c, store.data["datos"].get(s["ref"], {}), ahora_mx(),
+                            cierre_ja=store.data["cierre"].get(s["ref"], False))
+        send(chat_id, "<b>Asi quedaria la tarea en TickTick</b> (vista previa, aun no escribo nada)\n\n"
+                      + esc(lic.texto_plan(plan)))
     elif cmd == "/revisar":
         store.force = True
         send(chat_id, "Revisando ahora...")
@@ -292,6 +321,12 @@ def check_ref(store: Store, ref: str, fetch):
         return
 
     _revisar_cronograma(store, ref, getattr(anexos, "cronograma", None), [s for s in subs if s["base"]])
+    datos = lic.extraer_datos(getattr(anexos, "datos", None))
+    if datos:
+        store.data["datos"][ref] = {**store.data["datos"].get(ref, {}), **datos}
+    if anexos and any(re.search(r"cierre", a.nombre, re.I) and re.search(r"aclaraci|junta", a.nombre, re.I)
+                      for a in anexos):
+        store.data["cierre"][ref] = True   # no habra mas cambios en bases ni fechas
 
     known = store.data["docs"].setdefault(ref, {})
     if not anexos and known:
@@ -428,6 +463,13 @@ def probe(refs: list[str]) -> int:
                     print(f"    {k}: {v}")
             else:
                 print("  (no pude leer el cronograma de eventos)")
+            datos = lic.extraer_datos(getattr(docs, "datos", None))
+            print(f"  DATOS: {datos}")
+            if crono:
+                plan = lic.calcular(ref, crono, datos, ahora_mx())
+                print("  PLAN DE LA TAREA:")
+                for linea in lic.texto_plan(plan).splitlines():
+                    print("    " + linea)
     return codigo
 
 

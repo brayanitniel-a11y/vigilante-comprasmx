@@ -11,18 +11,32 @@ from datetime import datetime
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 FECHA_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?")
 
-# Fechas que avisan cuando cambian: (patron de la etiqueta, nombre que sale en el aviso).
-# Para vigilar otra (por ejemplo la junta de aclaraciones o el fallo) basta agregar una linea aqui.
+# Etiquetas (de ComprasMX) de las fechas que importan
+CLAVES = {
+    "publicacion": re.compile(r"^fecha\b.*publicaci", re.I),
+    "limite": re.compile(r"^fecha\b.*l[ií]mite.*aclaraciones", re.I),
+    "ja": re.compile(r"^fecha y hora de junta", re.I),
+    "visita": re.compile(r"^fecha\b.*visita", re.I),
+    "pp": re.compile(r"^fecha\b.*apertura de proposiciones", re.I),
+    "nf": re.compile(r"^fecha\b.*fallo", re.I),
+}
+
+# Fechas que avisan cuando cambian: (patron de la etiqueta, como se nombra en el aviso: "Se ha cambiado la fecha ...").
+# Para vigilar otra basta agregar una linea aqui.
 VIGILADAS = [
-    (re.compile(r"^fecha\b.*apertura de proposiciones", re.I), "presentación y apertura de proposiciones"),
+    (CLAVES["visita"], "de la visita a las instalaciones"),
+    (CLAVES["limite"], "límite para envío de aclaraciones"),
+    (CLAVES["ja"], "de la junta de aclaraciones"),
+    (CLAVES["pp"], "de presentación y apertura de proposiciones"),
+    (CLAVES["nf"], "del acto del fallo"),
 ]
 
 # Fechas que se muestran en el resumen de /fechas
 RESUMEN = [
-    ("Publicación", re.compile(r"^fecha\b.*publicaci", re.I)),
-    ("Junta de aclaraciones", re.compile(r"^fecha y hora de junta", re.I)),
-    ("Presentación y apertura", re.compile(r"^fecha\b.*apertura de proposiciones", re.I)),
-    ("Fallo", re.compile(r"^fecha\b.*fallo", re.I)),
+    ("Publicación", CLAVES["publicacion"]),
+    ("Junta de aclaraciones", CLAVES["ja"]),
+    ("Presentación y apertura", CLAVES["pp"]),
+    ("Fallo", CLAVES["nf"]),
 ]
 
 
@@ -95,7 +109,7 @@ def mezclar(antes: dict, ahora: dict) -> dict:
 
 
 def describir_cambio(nombre: str, antes: str, ahora: str) -> str:
-    texto = f"Se ha cambiado la fecha de {nombre}, del {fmt_fecha(antes)} al {fmt_fecha(ahora)}."
+    texto = f"Se ha cambiado la fecha {nombre}, del {fmt_fecha(antes)} al {fmt_fecha(ahora)}."
     a, b = parse_fecha(antes), parse_fecha(ahora)
     if a and b:
         dias = (b.date() - a.date()).days
@@ -106,6 +120,15 @@ def describir_cambio(nombre: str, antes: str, ahora: str) -> str:
         else:
             texto += "\nEs el mismo día; cambia la hora."
     return texto
+
+
+def fechas_clave(crono: dict) -> dict:
+    """{'ja': datetime|None, 'pp': ..., 'nf': ..., 'visita': ..., 'limite': ..., 'publicacion': ...}"""
+    return {k: parse_fecha(buscar(crono or {}, pat)[1]) for k, pat in CLAVES.items()}
+
+
+def fmt_dt(dt, con_hora: bool = True) -> str:
+    return f"{DIAS[dt.weekday()]} {dt:%d/%m/%Y}" + (f" {dt:%H:%M}" if con_hora else "")
 
 
 def resumen(crono: dict) -> list[tuple[str, str]]:
