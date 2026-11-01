@@ -127,6 +127,12 @@ def proyecto_destino(plantilla: dict | None = None) -> dict:
     return hallados[0]
 
 
+def tareas_de_proyecto(project_id: str) -> list:
+    r = requests.get(f"{BASE}/project/{project_id}/data", headers=_h(), timeout=30)
+    r.raise_for_status()
+    return r.json().get("tasks") or []
+
+
 def crear(t: dict) -> dict:
     r = requests.post(f"{BASE}/task", headers=_h(), json=t, timeout=30)
     r.raise_for_status()
