@@ -31,6 +31,36 @@ def fmt(d) -> str:
     return d.strftime("%Y-%m-%dT%H:%M:%S") + OFFSET
 
 
+def instante(v):
+    """Fecha de TickTick (milisegundos o texto con zona) -> datetime UTC; None si no hay."""
+    from datetime import timezone
+    if v in (None, ""):
+        return None
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(v / 1000, tz=timezone.utc)
+    return datetime.strptime(v[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc) - _off(v[19:])
+
+
+def _off(s: str):
+    from datetime import timedelta
+    s = s.strip()
+    if "+" in s[-5:] or "-" in s[-5:]:
+        sg = 1 if s[-5] == "+" else -1
+        return sg * timedelta(hours=int(s[-4:-2]), minutes=int(s[-2:]))
+    return timedelta(0)
+
+
+def _mismo(v, d) -> bool:
+    return instante(v) == instante(fmt(d))
+
+
+def _iso(v):
+    """Devuelve la fecha en formato de escritura (hora de Mexico), o None."""
+    from datetime import timedelta
+    i = instante(v)
+    return None if i is None else (i - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S") + OFFSET
+
+
 # ---------- logica pura (con pruebas) ----------
 def tarea_nueva(plan: lic.Plan, project_id: str, titulo: str | None = None, descripcion: str = "") -> dict:
     items = []
@@ -52,8 +82,9 @@ def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None) -> 
     pl = plantilla or lic.cargar_plantilla()
     cambios = []
     t = dict(tarea)
-    if plan.fecha_tarea and t.get("dueDate", "")[:19] != fmt(plan.fecha_tarea)[:19]:
+    if plan.fecha_tarea and not _mismo(t.get("dueDate"), plan.fecha_tarea):
         t["dueDate"], t["startDate"] = fmt(plan.fecha_tarea), fmt(plan.fecha_tarea)
+        t["isAllDay"] = False
         cambios.append("fecha de la tarea")
     tags = list(t.get("tags") or [])
     fallo = pl["etiqueta_fallo"]
@@ -70,8 +101,10 @@ def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None) -> 
     nuevos = []
     for it in t.get("items") or []:
         it = dict(it)
+        if it.get("startDate") is not None:
+            it["startDate"] = _iso(it["startDate"])
         p = por_titulo.get(_norm(it.get("title")))
-        if p and it.get("startDate", "")[:19] != fmt(p.fecha)[:19]:
+        if p and not _mismo(it.get("startDate"), p.fecha):
             it["startDate"], it["isAllDay"], it["timeZone"] = fmt(p.fecha), bool(p.todo_el_dia), TZ
             cambios.append(f"{it['title']}")
         nuevos.append(it)

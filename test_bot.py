@@ -398,4 +398,13 @@ assert t2["items"][0]["status"] == 1 and t2["items"][7]["status"] == 1 and t2["i
 assert "EVENTO: JA" in camb and "Evento: PP" in camb  # el limite no cambia: manda el del portal (mas temprano)
 t3, camb3 = tk.aplicar_plan(t2, nuevo_plan)
 assert camb3 == [] and t3 == t2                                                                            # idempotente
+# 28) formato real que devuelve TickTick (ms UTC y texto +0000, etiquetas en minusculas) no genera cambios falsos
+real = {**tn, "tags": ["licitaciones"], "dueDate": "2026-12-09T15:00:00.000+0000",
+        "items": [{**i, "startDate": (int(tk.instante(i["startDate"]).timestamp() * 1000) if "startDate" in i else None)} for i in tn["items"]]}
+for i in real["items"]:
+    if i["startDate"] is None:
+        del i["startDate"]
+r3, c3 = tk.aplicar_plan(real, pl)
+assert c3 == [], c3
+assert tk.instante(1795327200000).isoformat().startswith("2026-11-22T06:00") and tk._iso(1795327200000) == "2026-11-22T00:00:00-0600"
 print("OK: todas las pruebas pasaron")
