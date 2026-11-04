@@ -459,4 +459,14 @@ bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
 assert len(nube) == 1 and store.data["tareas"][REF7]["id"] == "M1" and nube["M1"]["content"] == "manual"
 os.environ.pop("TICKTICK_TOKEN")
+# 30) grupos: /id responde en cualquier chat; grupo no autorizado se calla; en grupo autorizado solo comandos y folios
+n = len(sent)
+bot.handle_message(store, -100123, "/id@MiBot")
+assert "-100123" in sent[-1]
+bot.handle_message(store, -100123, "hola a todos"); bot.handle_message(store, -100123, "/lista")
+assert len(sent) == n + 1                                    # no autorizado: solo contesto /id
+bot.ALLOWED.add(-100123)
+bot.handle_message(store, -100123, "buenos dias equipo"); assert len(sent) == n + 1   # charla normal: se ignora
+bot.handle_message(store, -100123, "/lista@MiBot"); assert len(sent) == n + 2 and "No vigilas" in sent[-1]
+bot.ALLOWED.discard(-100123)
 print("OK: todas las pruebas pasaron")

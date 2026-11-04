@@ -149,14 +149,20 @@ def handle_message(store: Store, chat_id: int, text: str):
     text = (text or "").strip()
     if not text:
         return
-    if chat_id not in ALLOWED:
-        send(chat_id, "No autorizado.")
-        return
-
     cmd, _, rest = text.partition(" ")
     cmd = cmd.lower().split("@")[0]
     rest = rest.strip()
+    if cmd == "/id":   # sirve en cualquier chat (incluso sin autorizar): da el numero que va en ALLOWED_CHAT_IDS
+        send(chat_id, f"El ID de este chat es <code>{chat_id}</code>")
+        return
     es_numero = not text.startswith("/") and " " not in text and valid_ref(normalize_ref(text))
+    en_grupo = chat_id < 0
+    if chat_id not in ALLOWED:
+        if not en_grupo:   # en un grupo no autorizado se calla, para no contestar a cada mensaje de la gente
+            send(chat_id, "No autorizado.")
+        return
+    if en_grupo and not (text.startswith("/") or es_numero):
+        return   # en grupos solo reacciona a comandos y folios; la charla normal se ignora
 
     if cmd in ("/start", "/ayuda", "/help"):
         send(chat_id,
