@@ -469,4 +469,11 @@ bot.ALLOWED.add(-100123)
 bot.handle_message(store, -100123, "buenos dias equipo"); assert len(sent) == n + 1   # charla normal: se ignora
 bot.handle_message(store, -100123, "/lista@MiBot"); assert len(sent) == n + 2 and "No vigilas" in sent[-1]
 bot.ALLOWED.discard(-100123)
+# 31) durante una revision larga se sigue atendiendo Telegram (between se llama tras cada procedimiento)
+llamadas = []
+bot.run_cycle(store, between=lambda: llamadas.append(1))
+assert len(llamadas) == len({s["ref"] for s in store.data["subs"]}) > 0
+n = len(sent); bot.handle_message(store, 1, "/revisar")
+assert store.force and store.avisar_fin == 1 and "te aviso" in sent[-1]
+store.force = False; store.avisar_fin = None
 print("OK: todas las pruebas pasaron")

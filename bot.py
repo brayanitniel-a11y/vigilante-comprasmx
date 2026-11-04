@@ -44,6 +44,7 @@ class Store:
     def __init__(self, path: str):
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
+        self.avisar_fin = None  # chat al que avisar cuando termine una revision pedida con /revisar
         self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}, "tareas": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
@@ -263,7 +264,8 @@ def handle_message(store: Store, chat_id: int, text: str):
                       + esc(lic.texto_plan(plan)))
     elif cmd == "/revisar":
         store.force = True
-        send(chat_id, "Revisando ahora...")
+        store.avisar_fin = chat_id
+        send(chat_id, "Revisando ahora... (te aviso cuando termine; puede tardar un minuto por procedimiento)")
     else:
         send(chat_id, "No entendi. /ayuda")
 
@@ -442,7 +444,8 @@ def check_ref(store: Store, ref: str, fetch):
                             f"Esto ya existia, solo aviso de lo que aparezca despues:\n{resumen}{lin_f}")
 
 
-def run_cycle(store: Store):
+def run_cycle(store: Store, between=None):
+    """between: funcion que se llama despues de cada procedimiento (el modo loop la usa para seguir atendiendo Telegram)."""
     refs = sorted({s["ref"] for s in store.data["subs"]})
     if not refs:
         return
@@ -450,6 +453,8 @@ def run_cycle(store: Store):
         for i, ref in enumerate(refs):
             check_ref(store, ref, fetch)
             store.save()
+            if between:
+                between()
             if i < len(refs) - 1:
                 time.sleep(random.uniform(*PAUSE))
 
@@ -504,10 +509,22 @@ def loop(store: Store):
             time.sleep(5)
         if store.force or time.time() >= nxt:
             store.force = False
+            t0 = time.time()
+
+            def atender():   # sigue contestando mensajes mientras lee los procedimientos
+                try:
+                    process_updates(store, 0)
+                except Exception as e:  # noqa: BLE001
+                    print("telegram (durante la revision):", e)
+
             try:
-                run_cycle(store)
+                run_cycle(store, between=atender)
             except Exception as e:  # noqa: BLE001
                 print("ciclo:", e)
+            if store.avisar_fin and not store.force:
+                send(store.avisar_fin, f"Revision terminada ({int(time.time() - t0)} s). "
+                                       f"Procedimientos vigilados: {len(store.data['subs'])}.")
+                store.avisar_fin = None
             nxt = time.time() + interval_now() * random.uniform(0.9, 1.2)
 
 
