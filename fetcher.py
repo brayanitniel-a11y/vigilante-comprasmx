@@ -88,6 +88,17 @@ JS_DATOS = """() => [...document.querySelectorAll('label.font-bold')].map(l => {
 }).filter(Boolean)"""
 
 
+# Espera a que la pagina haya pintado VALORES (no solo etiquetas): al menos 4 etiquetas con valor y alguna fecha dd/mm/aaaa.
+JS_VALORES_LISTOS = """() => {
+  const ls = [...document.querySelectorAll('label.font-bold')];
+  const vals = ls.map(l => {
+    const v = l.parentElement ? [...l.parentElement.children].find(c => c !== l && c.tagName !== 'BR') : null;
+    return v ? (v.innerText || '').trim() : '';
+  });
+  return vals.filter(v => v).length >= 4 && vals.some(v => /\\d{2}\\/\\d{2}\\/\\d{4}/.test(v));
+}"""
+
+
 class Lectura(list):
     """Lista de Anexo + el cronograma de eventos leido en la misma pagina (dict, o None si no se pudo leer)."""
     cronograma = None
@@ -314,6 +325,11 @@ class Browser:
             p.wait_for_function(JS_CRONOGRAMA_LISTO, timeout=8000)
         except Exception:  # noqa: BLE001
             pass
+        try:  # los valores se pintan un poco despues de las etiquetas (mas lento en equipos modestos)
+            p.wait_for_function(JS_VALORES_LISTOS, timeout=20000)
+        except Exception:  # noqa: BLE001
+            print("[aviso] la pagina no mostro valores del cronograma a tiempo; guardo captura")
+            self._dump("sin_valores_cronograma")
         lectura = Lectura(parse_tablas(raw, proc_url))
         pares = p.evaluate(JS_CRONOGRAMA)
         lectura.cronograma = parse_pairs(pares) if pares else None
