@@ -4,6 +4,7 @@ Nunca imprime el token. Reglas de oro:
   El estado (hecho / pendiente), la descripcion y los demas puntos del usuario no se tocan.
 - El punto "Acta de cierre de JA" lo marca el usuario; el bot nunca lo marca ni lo desmarca."""
 import os
+import re
 import sys
 import unicodedata
 from datetime import date, datetime
@@ -23,6 +24,11 @@ def _h():
 
 def _norm(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", s or "") if unicodedata.category(c) != "Mn").strip().lower()
+
+
+def etiqueta_estatus(est: str) -> str:
+    """TickTick no acepta espacios en las etiquetas: "EN APERTURA" -> "en_apertura"."""
+    return re.sub(r"\s+", "_", (est or "").strip()).lower()
 
 
 def fmt(d) -> str:
@@ -70,7 +76,7 @@ def tarea_nueva(plan: lic.Plan, project_id: str, titulo: str | None = None, desc
             d["startDate"] = fmt(it.fecha)
             d["isAllDay"] = bool(it.todo_el_dia)
         items.append(d)
-    t = {"title": titulo or plan.titulo, "projectId": project_id, "timeZone": TZ, "tags": list(plan.etiquetas) + ([plan.estatus] if plan.estatus else []),
+    t = {"title": titulo or plan.titulo, "projectId": project_id, "timeZone": TZ, "tags": list(plan.etiquetas) + ([etiqueta_estatus(plan.estatus)] if plan.estatus else []),
          "content": descripcion, "items": items}
     if plan.fecha_tarea:
         t["dueDate"], t["startDate"], t["isAllDay"] = fmt(plan.fecha_tarea), fmt(plan.fecha_tarea), False
@@ -98,13 +104,14 @@ def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None,
         tags = [x for x in tags if _norm(x) != _norm(fallo)]
         cambios.append(f"etiqueta {fallo} quitada")
     # etiqueta de estatus: se quita la que puso el bot antes (solo esa) y se pone la actual
-    if estatus_anterior and plan.estatus and _norm(estatus_anterior) != _norm(plan.estatus):
-        if any(_norm(x) == _norm(estatus_anterior) for x in tags):
-            tags = [x for x in tags if _norm(x) != _norm(estatus_anterior)]
-            cambios.append(f"etiqueta {estatus_anterior} quitada")
-    if plan.estatus and not any(_norm(x) == _norm(plan.estatus) for x in tags):
-        tags.append(plan.estatus)
-        cambios.append(f"etiqueta {plan.estatus} agregada")
+    nueva, vieja = etiqueta_estatus(plan.estatus), etiqueta_estatus(estatus_anterior)
+    if vieja and nueva and _norm(vieja) != _norm(nueva):
+        if any(_norm(x) == _norm(vieja) for x in tags):
+            tags = [x for x in tags if _norm(x) != _norm(vieja)]
+            cambios.append(f"etiqueta {vieja} quitada")
+    if nueva and not any(_norm(x) == _norm(nueva) for x in tags):
+        tags.append(nueva)
+        cambios.append(f"etiqueta {nueva} agregada")
     t["tags"] = tags
     por_titulo = {_norm(i.titulo): i for i in plan.items if i.fecha}
     nuevos = []
@@ -205,8 +212,8 @@ def prueba():
               "| item0 status:", f["items"][0].get("status"), "| content:", repr(f.get("content")))
         ok = (len(f["items"]) == len(plan.items) and f["items"][0].get("status") == 1 and f.get("content") == "nota del usuario"
               and "FALLO" in (f.get("tags") or [])
-              and "en apertura" in [g.lower() for g in f.get("tags") or []]
-              and "en aclaraciones" not in [g.lower() for g in f.get("tags") or []])
+              and "en_apertura" in [g.lower() for g in f.get("tags") or []]
+              and "en_aclaraciones" not in [g.lower() for g in f.get("tags") or []])
     finally:
         print("borrar -> HTTP", borrar(dest["id"], c["id"]))
     print("RESULTADO:", "OK" if ok else "REVISAR")

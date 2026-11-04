@@ -491,7 +491,7 @@ bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
 n = len(sent)
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
 tags = [g.lower() for g in nube["T1"]["tags"]]
-assert "en aclaraciones" in tags and "licitaciones" in tags and any("EN ACLARACIONES" in m for m in sent[n:]), (tags, sent[n:])
+assert "en_aclaraciones" in tags and "licitaciones" in tags and any("EN ACLARACIONES" in m for m in sent[n:]), (tags, sent[n:])
 nube["T1"]["tags"].append("mi-etiqueta")                      # etiqueta puesta por el usuario: no se toca
 n = len(sent)
 bot.run_cycle(store)                                          # mismo estatus: ni aviso ni cambios
@@ -499,14 +499,14 @@ assert len(sent) == n
 datos_site[REF7] = con_estatus("EN APERTURA")
 bot.run_cycle(store)
 tags = [g.lower() for g in nube["T1"]["tags"]]
-assert "en apertura" in tags and "en aclaraciones" not in tags and "mi-etiqueta" in tags and "licitaciones" in tags, tags
+assert "en_apertura" in tags and "en_aclaraciones" not in tags and "mi-etiqueta" in tags and "licitaciones" in tags, tags
 assert any("Cambio de estatus" in m and "EN ACLARACIONES" in m and "EN APERTURA" in m and "Nacional" in m for m in sent[n:]), sent[n:]
 assert store.data["tareas"][REF7]["estatus"] == "EN APERTURA"
 # tarea ya existente: se adopta y se le pone la etiqueta de estatus
 bot.handle_message(store, 1, f"/quitar {REF7}"); nube.clear()
 nube["M1"] = {"id": "M1", "title": "LICITACIÓN LA-N-23-2026 Hidalgo", "status": 0, "tags": ["licitaciones"], "items": [], "content": "manual"}
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
-assert len(nube) == 1 and "en apertura" in [g.lower() for g in nube["M1"]["tags"]] and nube["M1"]["content"] == "manual"
+assert len(nube) == 1 and "en_apertura" in [g.lower() for g in nube["M1"]["tags"]] and nube["M1"]["content"] == "manual"
 # vista previa muestra el estatus
 bot.handle_message(store, 1, f"/plan {REF7}"); assert "Estatus: EN APERTURA" in sent[-1], sent[-1]
 bot.handle_message(store, 1, f"/quitar {REF7}")
