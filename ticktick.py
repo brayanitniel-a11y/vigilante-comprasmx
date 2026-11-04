@@ -70,14 +70,15 @@ def tarea_nueva(plan: lic.Plan, project_id: str, titulo: str | None = None, desc
             d["startDate"] = fmt(it.fecha)
             d["isAllDay"] = bool(it.todo_el_dia)
         items.append(d)
-    t = {"title": titulo or plan.titulo, "projectId": project_id, "timeZone": TZ, "tags": list(plan.etiquetas),
+    t = {"title": titulo or plan.titulo, "projectId": project_id, "timeZone": TZ, "tags": list(plan.etiquetas) + ([plan.estatus] if plan.estatus else []),
          "content": descripcion, "items": items}
     if plan.fecha_tarea:
         t["dueDate"], t["startDate"], t["isAllDay"] = fmt(plan.fecha_tarea), fmt(plan.fecha_tarea), False
     return t
 
 
-def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None) -> tuple[dict, list[str]]:
+def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None,
+                 estatus_anterior: str = "") -> tuple[dict, list[str]]:
     """Devuelve (tarea modificada, lista de cambios). No toca estados ni puntos sin fecha automatica."""
     pl = plantilla or lic.cargar_plantilla()
     cambios = []
@@ -96,6 +97,14 @@ def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None) -> 
     elif tiene and not quiere:
         tags = [x for x in tags if _norm(x) != _norm(fallo)]
         cambios.append(f"etiqueta {fallo} quitada")
+    # etiqueta de estatus: se quita la que puso el bot antes (solo esa) y se pone la actual
+    if estatus_anterior and plan.estatus and _norm(estatus_anterior) != _norm(plan.estatus):
+        if any(_norm(x) == _norm(estatus_anterior) for x in tags):
+            tags = [x for x in tags if _norm(x) != _norm(estatus_anterior)]
+            cambios.append(f"etiqueta {estatus_anterior} quitada")
+    if plan.estatus and not any(_norm(x) == _norm(plan.estatus) for x in tags):
+        tags.append(plan.estatus)
+        cambios.append(f"etiqueta {plan.estatus} agregada")
     t["tags"] = tags
     por_titulo = {_norm(i.titulo): i for i in plan.items if i.fecha}
     nuevos = []
@@ -168,7 +177,7 @@ def prueba():
     crono = {"Fecha y hora de junta de aclaraciones": "24/11/2026 09:00",
              "Fecha y hora de presentación y apertura de proposiciones": "09/12/2026 09:00",
              "Fecha y hora del acto del Fallo": "29/12/2026 12:00"}
-    datos = {"tipo": "LICITACIÓN PÚBLICA", "entidad": "HIDALGO", "caracter": "NACIONAL"}
+    datos = {"tipo": "LICITACIÓN PÚBLICA", "entidad": "HIDALGO", "caracter": "NACIONAL", "estatus": "EN ACLARACIONES"}
     ref = "LA-72-037-913055954-N-999-2026"
     plan = lic.calcular(ref, crono, datos, dt(2026, 11, 1, 12, 0))
     dest = proyecto_destino()
@@ -187,15 +196,17 @@ def prueba():
         t = actualizar(t)
         # difieren PP y llega la hora: debe cambiar fecha, quitar/poner FALLO, y respetar lo del usuario
         crono2 = {**crono, "Fecha y hora de presentación y apertura de proposiciones": "16/12/2026 09:00"}
-        plan2 = lic.calcular(ref, crono2, datos, dt(2026, 12, 16, 9, 0))
-        t2, cambios = aplicar_plan(obtener(dest["id"], c["id"]), plan2)
+        plan2 = lic.calcular(ref, crono2, {**datos, "estatus": "EN APERTURA"}, dt(2026, 12, 16, 9, 0))
+        t2, cambios = aplicar_plan(obtener(dest["id"], c["id"]), plan2, estatus_anterior="EN ACLARACIONES")
         print("cambios a aplicar:", cambios)
         r = actualizar(t2)
         f = obtener(dest["id"], c["id"])
         print("final -> items:", len(f.get("items") or []), "| due:", f.get("dueDate"), "| tags:", f.get("tags"),
               "| item0 status:", f["items"][0].get("status"), "| content:", repr(f.get("content")))
         ok = (len(f["items"]) == len(plan.items) and f["items"][0].get("status") == 1 and f.get("content") == "nota del usuario"
-              and "FALLO" in (f.get("tags") or []))
+              and "FALLO" in (f.get("tags") or [])
+              and "en apertura" in [g.lower() for g in f.get("tags") or []]
+              and "en aclaraciones" not in [g.lower() for g in f.get("tags") or []])
     finally:
         print("borrar -> HTTP", borrar(dest["id"], c["id"]))
     print("RESULTADO:", "OK" if ok else "REVISAR")

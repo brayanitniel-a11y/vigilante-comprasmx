@@ -335,16 +335,17 @@ def _sync_tarea(store: Store, ref: str):
             dest = tk.proyecto_destino()
             for t in tk.tareas_de_proyecto(dest["id"]):
                 if tk._norm(t.get("title")) == tk._norm(plan.titulo) and t.get("status", 0) == 0:
-                    store.data["tareas"][ref] = {"id": t["id"], "project": dest["id"]}
+                    info = store.data["tareas"][ref] = {"id": t["id"], "project": dest["id"]}
                     send(chat, f"Ya existia la tarea <b>{esc(plan.titulo)}</b> en TickTick: la dejo como esta "
-                               "y solo mantengo sus fechas.")
-                    return
-            desc = f"{ref}\nCarácter: {plan.caracter}" if plan.caracter else ref
-            nueva = tk.crear(tk.tarea_nueva(plan, dest["id"], descripcion=desc))
-            store.data["tareas"][ref] = {"id": nueva["id"], "project": dest["id"]}
-            send(chat, f"<b>Tarea creada en TickTick</b>\n{esc(plan.titulo)} · {esc(plan.caracter)}\n"
-                       f"Lista: {esc(plan.lista)}")
-            return
+                               "y solo mantengo sus fechas y su etiqueta de estatus.")
+                    break   # sigue abajo: se le pone la etiqueta de estatus y se ajustan fechas
+            else:
+                desc = f"{ref}\nCarácter: {plan.caracter}" if plan.caracter else ref
+                nueva = tk.crear(tk.tarea_nueva(plan, dest["id"], descripcion=desc))
+                store.data["tareas"][ref] = {"id": nueva["id"], "project": dest["id"], "estatus": plan.estatus}
+                send(chat, f"<b>Tarea creada en TickTick</b>\n{esc(plan.titulo)} · {esc(plan.caracter)}"
+                           + (f" · {esc(plan.estatus)}" if plan.estatus else "") + f"\nLista: {esc(plan.lista)}")
+                return
         try:
             t = tk.obtener(info["project"], info["id"])
         except requests.HTTPError as e:
@@ -356,10 +357,12 @@ def _sync_tarea(store: Store, ref: str):
             raise
         if t.get("status", 0) != 0:
             return  # tarea completada: no se toca
-        t2, cambios = tk.aplicar_plan(t, plan)
+        t2, cambios = tk.aplicar_plan(t, plan, estatus_anterior=info.get("estatus", ""))
         if cambios:
             tk.actualizar(t2)
             print(f"[{ref}] tarea actualizada: {', '.join(cambios)}")
+        if plan.estatus:
+            store.data["tareas"][ref]["estatus"] = plan.estatus
         store.data["tareas"][ref].pop("err", None)
     except Exception as e:  # noqa: BLE001
         print(f"[{ref}] TickTick error: {e}")
@@ -401,7 +404,14 @@ def check_ref(store: Store, ref: str, fetch):
     _revisar_cronograma(store, ref, getattr(anexos, "cronograma", None), [s for s in subs if s["base"]])
     datos = lic.extraer_datos(getattr(anexos, "datos", None))
     if datos:
+        antes_est = store.data["datos"].get(ref, {}).get("estatus", "")
         store.data["datos"][ref] = {**store.data["datos"].get(ref, {}), **datos}
+        nuevo_est = datos.get("estatus", "")
+        if antes_est and nuevo_est and tk._norm(antes_est) != tk._norm(nuevo_est):   # la primera lectura es silenciosa
+            for s in [s for s in subs if s["base"]]:
+                alias = f" ({esc(s['alias'])})" if s["alias"] else ""
+                send(s["chat"], f"<b>Cambio de estatus</b> en <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n"
+                                f"Antes: {esc(antes_est)}\nAhora: <b>{esc(nuevo_est)}</b>")
     if anexos and any(re.search(r"cierre", a.nombre, re.I) and re.search(r"aclaraci|junta", a.nombre, re.I)
                       for a in anexos):
         store.data["cierre"][ref] = True   # no habra mas cambios en bases ni fechas

@@ -149,6 +149,7 @@ class Plan:
     items: list[Item]
     avisos: list[str] = field(default_factory=list)
     caracter: str = ""
+    estatus: str = ""      # estatus que muestra ComprasMX (EN APERTURA, EN ACLARACIONES...); va como etiqueta
 
 
 def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: bool = False,
@@ -195,14 +196,15 @@ def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: boo
     for nombre, v in (("la junta de aclaraciones", ja), ("la presentación y apertura", pp), ("el fallo", nf)):
         if not v:
             avisos.append(f"ComprasMX no trae la fecha de {nombre}")
-    return Plan(titulo(ref, datos), pl["lista"], etiquetas, fecha_tarea, items, avisos, caracter(ref, datos))
+    return Plan(titulo(ref, datos), pl["lista"], etiquetas, fecha_tarea, items, avisos, caracter(ref, datos),
+                (datos or {}).get("estatus", "").strip())
 
 
 def texto_plan(plan: Plan) -> str:
     """Resumen legible (sin formato HTML)."""
     lineas = [plan.titulo,
               f"Lista: {plan.lista} | Etiquetas: {', '.join(plan.etiquetas)}",
-              f"Carácter: {plan.caracter or '(sin dato)'}",
+              f"Carácter: {plan.caracter or '(sin dato)'} | Estatus: {plan.estatus or '(sin dato)'}",
               f"Fecha de la tarea: {cr.fmt_dt(plan.fecha_tarea) if plan.fecha_tarea else '(sin fecha)'}",
               ""]
     for it in plan.items:
