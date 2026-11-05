@@ -83,8 +83,26 @@ def tarea_nueva(plan: lic.Plan, project_id: str, titulo: str | None = None, desc
     return t
 
 
+FOLIO_RE = re.compile(r"\b[A-Z]{2}-[A-Z0-9]{2}-[A-Z0-9]{3}-[A-Z0-9]{6,12}-[NTI]-\d+-\d{4}\b", re.I)
+
+
+def elegir_tarea_existente(tareas: list, ref: str, titulo: str) -> dict | None:
+    """Tarea ya existente de este procedimiento. Primero la que lleva el folio completo en la descripcion; si no,
+    la de mismo titulo, pero solo si su descripcion no trae OTRO folio (evita confundir procedimientos parecidos)."""
+    activas = [t for t in tareas if t.get("status", 0) == 0]
+    for t in activas:
+        if ref.upper() in (t.get("content") or "").upper():
+            return t
+    for t in activas:
+        if _norm(t.get("title")) == _norm(titulo):
+            otros = {f.upper() for f in FOLIO_RE.findall(t.get("content") or "")} - {ref.upper()}
+            if not otros:
+                return t
+    return None
+
+
 def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None,
-                 estatus_anterior: str = "") -> tuple[dict, list[str]]:
+                 estatus_anterior: str = "", ref: str = "") -> tuple[dict, list[str]]:
     """Devuelve (tarea modificada, lista de cambios). No toca estados ni puntos sin fecha automatica."""
     pl = plantilla or lic.cargar_plantilla()
     cambios = []
@@ -125,6 +143,11 @@ def aplicar_plan(tarea: dict, plan: lic.Plan, plantilla: dict | None = None,
             cambios.append(f"{it['title']}")
         nuevos.append(it)
     t["items"] = nuevos
+    # el folio completo va siempre en la descripcion (identificacion); si falta se agrega al inicio sin borrar nada
+    if ref and ref.upper() not in (t.get("content") or "").upper():
+        previo = (t.get("content") or "").strip()
+        t["content"] = f"{ref}\n\n{previo}" if previo else ref
+        cambios.append("folio en la descripción")
     return t, cambios
 
 

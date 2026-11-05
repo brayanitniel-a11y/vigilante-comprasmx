@@ -445,7 +445,20 @@ crono_site[REF7] = {**CE, "Fecha y hora de presentación y apertura de proposici
 bot.ahora_mx = lambda: datetime(2026, 12, 16, 9, 30)
 bot.run_cycle(store)
 assert nube["T1"]["dueDate"] == "2026-12-29T12:00:00-0600" and "fallo" in [g.lower() for g in nube["T1"]["tags"]]
-assert nube["T1"]["items"][0]["status"] == 1 and nube["T1"]["content"] == "mi nota"
+assert nube["T1"]["items"][0]["status"] == 1 and "mi nota" in nube["T1"]["content"] and REF7 in nube["T1"]["content"]   # folio añadido, nota respetada
+# personas: /soy, menciones y "a cargo"
+U1, U2 = {"id": 111, "first_name": "Ana"}, {"id": 222, "first_name": "Luis"}
+m = len(sent)
+bot.handle_message(store, 1, "/soy ana", U1); bot.handle_message(store, 1, "/soy luis", U2)
+bot.handle_message(store, 1, "/soy ana", U2); assert "otra persona" in sent[-1]
+assert set(store.data["personas"]) == {"ana", "luis"}
+bot.handle_message(store, 1, "/personas"); assert "tg://user?id=111" in sent[-1]
+nube["T1"]["tags"] = list(nube["T1"]["tags"]) + ["ana", "luis"]
+bot.ahora_mx = lambda: datetime(2026, 12, 16, 9, 40)
+store.data["tareas"][REF7]["estatus"] = "x"; bot.run_cycle(store)
+assert store.data["asignados"][REF7] == ["ana", "luis"], store.data["asignados"]
+assert "A cargo" in bot._a_cargo(store, REF7) and "tg://user?id=111" in bot._quienes(store, REF7) and " y " in bot._quienes(store, REF7)
+bot.handle_message(store, 1, "/olvidar luis"); assert "luis" not in store.data["personas"] and store.data["asignados"][REF7] == ["ana"]
 # tarea completada o borrada: no se toca / se avisa una vez
 nube["T1"]["status"] = 2; crono_site[REF7] = {**CE, "Fecha y hora del acto del Fallo": "30/12/2026 12:00"}; bot.run_cycle(store)
 assert nube["T1"]["dueDate"] == "2026-12-29T12:00:00-0600"
@@ -457,7 +470,13 @@ assert REF7 not in store.data["tareas"]
 nube["M1"] = {"id": "M1", "title": "LICITACIÓN LA-N-23-2026 Hidalgo", "status": 0, "tags": ["licitaciones"], "items": [], "content": "manual"}
 bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
-assert len(nube) == 1 and store.data["tareas"][REF7]["id"] == "M1" and nube["M1"]["content"] == "manual"
+assert len(nube) == 1 and store.data["tareas"][REF7]["id"] == "M1" and nube["M1"]["content"].endswith("manual") and REF7 in nube["M1"]["content"]
+# misma nomenclatura pero con OTRO folio en la descripción: no se adopta, se crea otra
+bot.handle_message(store, 1, f"/quitar {REF7}"); nube.clear()
+nube["M2"] = {"id": "M2", "title": "LICITACIÓN LA-N-23-2026 Hidalgo", "status": 0, "tags": [], "items": [],
+              "content": "LA-99-999-999999999-N-23-2026\notro"}
+bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
+assert store.data["tareas"][REF7]["id"] != "M2" and nube["M2"]["content"] == "LA-99-999-999999999-N-23-2026\notro", nube
 os.environ.pop("TICKTICK_TOKEN")
 # 30) grupos: /id responde en cualquier chat; grupo no autorizado se calla; en grupo autorizado solo comandos y folios
 n = len(sent)
@@ -506,7 +525,7 @@ assert store.data["tareas"][REF7]["estatus"] == "EN APERTURA"
 bot.handle_message(store, 1, f"/quitar {REF7}"); nube.clear()
 nube["M1"] = {"id": "M1", "title": "LICITACIÓN LA-N-23-2026 Hidalgo", "status": 0, "tags": ["licitaciones"], "items": [], "content": "manual"}
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
-assert len(nube) == 1 and "en_apertura" in [g.lower() for g in nube["M1"]["tags"]] and nube["M1"]["content"] == "manual"
+assert len(nube) == 1 and "en_apertura" in [g.lower() for g in nube["M1"]["tags"]] and nube["M1"]["content"].endswith("manual")
 # vista previa muestra el estatus
 bot.handle_message(store, 1, f"/plan {REF7}"); assert "Estatus: EN APERTURA" in sent[-1], sent[-1]
 bot.handle_message(store, 1, f"/quitar {REF7}")

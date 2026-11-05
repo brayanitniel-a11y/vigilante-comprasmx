@@ -252,17 +252,23 @@ def _lista(nombres: list[str]) -> str:
     return ", ".join(nombres[:-1]) + " y " + nombres[-1]
 
 
-def _con_hora(nombre: str, fecha, prefijo: str = "") -> str:
-    return f"{nombre} ({prefijo}{fecha:%H:%M})" if isinstance(fecha, datetime) else nombre
+def _con_hora(nombre: str, fecha, prefijo: str = "", quienes: str = "") -> str:
+    partes = []
+    if isinstance(fecha, datetime):
+        partes.append(f"{prefijo}{fecha:%H:%M}")
+    if quienes:
+        partes.append(f"a cargo de {quienes}")
+    return f"{nombre} ({', '.join(partes)})" if partes else nombre
 
 
-def texto_recordatorio(eventos: list[tuple[str, str, datetime | date]], hoy: date) -> str:
-    """eventos: [(nombre visible, clave, fecha)]. Devuelve el mensaje en tono natural, o "" si no hay nada hoy."""
+def texto_recordatorio(eventos: list[tuple], hoy: date) -> str:
+    """eventos: [(nombre visible, clave, fecha[, quienes])]. Devuelve el mensaje en tono natural, o "" si no hay nada hoy.
+    Los textos que llegan ya vienen listos para mostrar (el bot escapa el HTML y arma las menciones)."""
     if not eventos:
         return ""
-    por_clave: dict[str, list[tuple[str, datetime | date]]] = {}
-    for nombre, clave, fecha in eventos:
-        por_clave.setdefault(clave, []).append((nombre, fecha))
+    por_clave: dict[str, list[tuple]] = {}
+    for nombre, clave, fecha, *resto in eventos:
+        por_clave.setdefault(clave, []).append((nombre, fecha, resto[0] if resto else ""))
 
     def clave_orden(t):
         f = t[1]
@@ -271,7 +277,7 @@ def texto_recordatorio(eventos: list[tuple[str, str, datetime | date]], hoy: dat
     def frase(clave: str) -> str:
         lista = sorted(por_clave[clave], key=clave_orden)
         n = len(lista)
-        v = _lista([_con_hora(nom, f, "límite " if clave == "limite_preguntas" else "") for nom, f in lista])
+        v = _lista([_con_hora(nom, f, "límite " if clave == "limite_preguntas" else "", q) for nom, f, q in lista])
         if clave == "nf":
             return (f"salen las actas de fallo de {v}, así que debes estar al pendiente" if n > 1
                     else f"sale el acta de fallo de {v}, así que debes estar al pendiente")

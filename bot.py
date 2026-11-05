@@ -46,7 +46,7 @@ class Store:
         self.force = False  # pedir una revision inmediata (modo loop)
         self.avisar_fin = None  # chat al que avisar cuando termine una revision pedida con /revisar
         self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}, "tareas": {},
-                     "finales": {}, "archivo": [], "recordatorio": ""}
+                     "finales": {}, "archivo": [], "recordatorio": "", "personas": {}, "asignados": {}}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
@@ -57,6 +57,8 @@ class Store:
         self.data.setdefault("tareas", {})
         self.data.setdefault("finales", {})   # ref -> {estatus, t}: ya adjudicado; se archiva a las 24 h
         self.data.setdefault("archivo", [])   # el archivero: procedimientos que ya dejaron de rastrearse
+        self.data.setdefault("personas", {})    # etiqueta (nombre) -> {id de Telegram, nombre}: a quien mencionar
+        self.data.setdefault("asignados", {})   # ref -> [etiquetas de persona que trae su tarea de TickTick]
         self.data.setdefault("recordatorio", "")   # fecha (aaaa-mm-dd) del ultimo recordatorio diario enviado
         self._saved = self._dump()
 
@@ -150,7 +152,7 @@ def _visto(store: Store, ref: str, ok: bool, err: str = ""):
     store.data["seen"][ref] = {"t": int(time.time()), "ok": ok, "err": err[:80]}
 
 
-def handle_message(store: Store, chat_id: int, text: str):
+def handle_message(store: Store, chat_id: int, text: str, user: dict | None = None):
     text = (text or "").strip()
     if not text:
         return
@@ -174,7 +176,7 @@ def handle_message(store: Store, chat_id: int, text: str):
              "<b>Vigilante de anexos</b>\n"
              "/agregar &lt;numero de procedimiento&gt; [alias]\n"
              "/quitar &lt;# de la lista, alias o numero&gt;\n"
-             "/lista\n/fechas [# de la lista]\n/plan [# de la lista]\n/hoy (eventos de hoy)\n"
+             "/lista\n/fechas [# de la lista]\n/plan [# de la lista]\n/soy &lt;nombre&gt; (para que te mencione; el mismo nombre de tu etiqueta en TickTick)\n/personas\n/hoy (eventos de hoy)\n"
              "/archivo [texto o #] (procedimientos ya adjudicados)\n/reactivar &lt;# del archivo o folio&gt;\n/revisar\n\n"
              "Tambien puedes mandar solo el numero, por ejemplo IO-89-L47-830124970-N-14-2026")
     elif cmd == "/agregar" or es_numero:
@@ -211,6 +213,7 @@ def handle_message(store: Store, chat_id: int, text: str):
             store.data["crono"].pop(s["ref"], None)
             store.data["datos"].pop(s["ref"], None)
             store.data["cierre"].pop(s["ref"], None)
+            store.data["asignados"].pop(s["ref"], None)
             tarea = store.data["tareas"].pop(s["ref"], None)
         else:
             tarea = None
@@ -267,9 +270,15 @@ def handle_message(store: Store, chat_id: int, text: str):
                             cierre_ja=store.data["cierre"].get(s["ref"], False))
         send(chat_id, "<b>Asi quedaria la tarea en TickTick</b> (vista previa, aun no escribo nada)\n\n"
                       + esc(lic.texto_plan(plan)))
+    elif cmd == "/soy":
+        _cmd_soy(store, chat_id, rest, user)
+    elif cmd == "/personas":
+        _cmd_personas(store, chat_id)
+    elif cmd == "/olvidar":
+        _cmd_olvidar(store, chat_id, rest)
     elif cmd == "/hoy":
         t = _texto_hoy(store, chat_id)
-        send(chat_id, esc(t) if t else "Hoy no tienes eventos programados en tus procedimientos.")
+        send(chat_id, t if t else "Hoy no tienes eventos programados en tus procedimientos.")
     elif cmd == "/archivo":
         _cmd_archivo(store, chat_id, rest)
     elif cmd == "/reactivar":
@@ -291,7 +300,7 @@ def process_updates(store: Store, timeout: int):
         if "text" in m:
             n += 1
             print(f"mensaje de chat {m['chat']['id']}: {m['text'][:60]!r}")
-            handle_message(store, m["chat"]["id"], m["text"])
+            handle_message(store, m["chat"]["id"], m["text"], m.get("from"))
     store.save()
     return n
 
@@ -310,6 +319,66 @@ def interval_now() -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Personas: quien trabaja cada tarea se marca con etiquetas de nombre en TickTick (ana, luis...)
+# --------------------------------------------------------------------------- #
+def _asignados_de(store: Store, tags: list) -> list[str]:
+    por_etiqueta = {tk._norm(t): t for t in tags}
+    return [k for k in store.data["personas"] if k in por_etiqueta]
+
+
+def _quienes(store: Store, ref: str) -> str:
+    """'Ana y Luis' con enlaces de mención de Telegram (HTML), o '' si la tarea no tiene personas registradas."""
+    p = store.data["personas"]
+    nombres = [f'<a href="tg://user?id={p[k]["id"]}">{esc(p[k]["nombre"])}</a>'
+               for k in store.data["asignados"].get(ref, []) if k in p]
+    if len(nombres) <= 1:
+        return "".join(nombres)
+    return ", ".join(nombres[:-1]) + " y " + nombres[-1]
+
+
+def _a_cargo(store: Store, ref: str) -> str:
+    q = _quienes(store, ref)
+    return f"\nA cargo: {q}" if q else ""
+
+
+def _cmd_soy(store: Store, chat_id: int, rest: str, user: dict | None):
+    if not rest or not user or "id" not in user:
+        send(chat_id, "Uso: /soy &lt;tu nombre&gt;, igual que tu etiqueta en TickTick (una sola palabra, por ejemplo /soy ana).")
+        return
+    nombre = rest.split()[0]
+    clave = tk._norm(nombre)
+    p = store.data["personas"]
+    if clave in p and p[clave]["id"] != user["id"]:
+        send(chat_id, f"Ese nombre ya lo tiene otra persona. Si es un error, mándame /olvidar {esc(clave)} y vuelve a intentar.")
+        return
+    for k in [k for k, v in p.items() if v["id"] == user["id"]]:
+        p.pop(k)   # una persona = un nombre (si se cambia, se reemplaza)
+    p[clave] = {"id": user["id"], "nombre": nombre[:1].upper() + nombre[1:]}
+    send(chat_id, f"Listo, {esc(p[clave]['nombre'])}. Cuando una tarea tenga la etiqueta <code>{esc(clave)}</code> en "
+                  "TickTick, te voy a mencionar en los avisos de ese procedimiento.")
+
+
+def _cmd_personas(store: Store, chat_id: int):
+    p = store.data["personas"]
+    if not p:
+        send(chat_id, "Todavía no hay personas registradas. Cada quien manda /soy y su nombre (el de su etiqueta en TickTick).")
+        return
+    send(chat_id, "<b>Personas</b>\n" + "\n".join(
+        f'• <code>{esc(k)}</code> → <a href="tg://user?id={v["id"]}">{esc(v["nombre"])}</a>' for k, v in p.items()))
+
+
+def _cmd_olvidar(store: Store, chat_id: int, rest: str):
+    clave = tk._norm(rest.split()[0]) if rest else ""
+    if clave and store.data["personas"].pop(clave, None):
+        for lst in store.data["asignados"].values():
+            if clave in lst:
+                lst.remove(clave)
+        send(chat_id, f"Listo, ya no menciono a <code>{esc(clave)}</code>.")
+    else:
+        send(chat_id, "No encontré ese nombre. Usa /personas para ver los registrados.")
+
+
+# --------------------------------------------------------------------------- #
 # Recordatorio diario (8:30) y /hoy
 # --------------------------------------------------------------------------- #
 HORA_RECORDATORIO = (8, 30)
@@ -325,8 +394,8 @@ def _texto_hoy(store: Store, chat_id: int) -> str:
         crono, datos = store.data["crono"].get(ref), store.data["datos"].get(ref, {})
         if not crono or not cr.es_lectura_valida(crono):
             continue
-        nombre = lic.nombre_visible(ref, datos, s["alias"])
-        eventos += [(nombre, clave, fecha) for clave, fecha in lic.eventos_hoy(ref, crono, datos, hoy)]
+        nombre, quienes = esc(lic.nombre_visible(ref, datos, s["alias"])), _quienes(store, ref)
+        eventos += [(nombre, clave, fecha, quienes) for clave, fecha in lic.eventos_hoy(ref, crono, datos, hoy)]
     return lic.texto_recordatorio(eventos, hoy)
 
 
@@ -341,7 +410,7 @@ def _recordatorio_diario(store: Store):
     for chat in sorted({s["chat"] for s in store.data["subs"]}):
         t = _texto_hoy(store, chat)
         if t:
-            send(chat, "Buenos días ☀️\n\n" + esc(t))
+            send(chat, "Buenos días ☀️\n\n" + t)
     store.save()
 
 
@@ -370,7 +439,7 @@ def _registrar_final(store: Store, ref: str, subs: list):
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
                 send(s["chat"], f"<b>{esc(est)}</b>: <code>{esc(ref)}</code>{alias}\n"
                                 "Lo sigo vigilando 24 horas por si sale algún documento más; después dejo de "
-                                "rastrearlo y lo guardo en el archivero (consúltalo con /archivo).")
+                                "rastrearlo y lo guardo en el archivero (consúltalo con /archivo)." + _a_cargo(store, ref))
     elif ref in fin:
         fin.pop(ref)
         for s in subs:
@@ -399,7 +468,7 @@ def _archivar(store: Store, ref: str, f: dict):
     }
     d["archivo"] = [e for e in d["archivo"] if e["ref"] != ref] + [entrada]
     d["subs"] = [s for s in d["subs"] if s["ref"] != ref]
-    for k in ("docs", "fails", "seen", "crono", "datos", "cierre", "tareas", "finales"):
+    for k in ("docs", "fails", "seen", "crono", "datos", "cierre", "tareas", "finales", "asignados"):
         d[k].pop(ref, None)
     for chat in chats:
         send(chat, f"Archivado: <code>{esc(ref)}</code> ({esc(f['estatus'])}). Ya no lo rastreo; "
@@ -488,7 +557,7 @@ def _revisar_cronograma(store: Store, ref: str, ahora, activos: list):
             for s in activos:
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
                 send(s["chat"], f"<b>Cambio de fecha</b> en <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n"
-                                f"{esc(cr.describir_cambio(nombre, a, b))}")
+                                f"{esc(cr.describir_cambio(nombre, a, b))}{_a_cargo(store, ref)}")
     store.data["crono"][ref] = cr.mezclar(antes, ahora)
 
 
@@ -509,12 +578,12 @@ def _sync_tarea(store: Store, ref: str):
     try:
         if not info:
             dest = tk.proyecto_destino()
-            for t in tk.tareas_de_proyecto(dest["id"]):
-                if tk._norm(t.get("title")) == tk._norm(plan.titulo) and t.get("status", 0) == 0:
-                    info = store.data["tareas"][ref] = {"id": t["id"], "project": dest["id"]}
-                    send(chat, f"Ya existia la tarea <b>{esc(plan.titulo)}</b> en TickTick: la dejo como esta "
-                               "y solo mantengo sus fechas y su etiqueta de estatus.")
-                    break   # sigue abajo: se le pone la etiqueta de estatus y se ajustan fechas
+            t = tk.elegir_tarea_existente(tk.tareas_de_proyecto(dest["id"]), ref, plan.titulo)
+            if t:
+                info = store.data["tareas"][ref] = {"id": t["id"], "project": dest["id"]}
+                send(chat, f"Ya existia la tarea <b>{esc(plan.titulo)}</b> en TickTick: la dejo como esta y solo "
+                           "mantengo sus fechas, su etiqueta de estatus y el folio en la descripción.")
+                # sigue abajo: se le pone la etiqueta de estatus, el folio y se ajustan fechas
             else:
                 desc = f"{ref}\nCarácter: {plan.caracter}" if plan.caracter else ref
                 nueva = tk.crear(tk.tarea_nueva(plan, dest["id"], descripcion=desc))
@@ -533,7 +602,8 @@ def _sync_tarea(store: Store, ref: str):
             raise
         if t.get("status", 0) != 0:
             return  # tarea completada: no se toca
-        t2, cambios = tk.aplicar_plan(t, plan, estatus_anterior=info.get("estatus", ""))
+        store.data["asignados"][ref] = _asignados_de(store, t.get("tags") or [])
+        t2, cambios = tk.aplicar_plan(t, plan, estatus_anterior=info.get("estatus", ""), ref=ref)
         if cambios:
             tk.actualizar(t2)
             print(f"[{ref}] tarea actualizada: {', '.join(cambios)}")
@@ -587,7 +657,7 @@ def check_ref(store: Store, ref: str, fetch):
             for s in [s for s in subs if s["base"]]:
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
                 send(s["chat"], f"<b>Cambio de estatus</b> en <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n"
-                                f"Antes: {esc(antes_est)}\nAhora: <b>{esc(nuevo_est)}</b>")
+                                f"Antes: {esc(antes_est)}\nAhora: <b>{esc(nuevo_est)}</b>{_a_cargo(store, ref)}")
     _registrar_final(store, ref, subs)
     if anexos and any(re.search(r"cierre", a.nombre, re.I) and re.search(r"aclaraci|junta", a.nombre, re.I)
                       for a in anexos):
@@ -621,7 +691,7 @@ def check_ref(store: Store, ref: str, fetch):
                     for a in new
                 )
                 link = f"\n{esc(new[0].url)}" if new[0].url else ""
-                send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n{body}{link}")
+                send(s["chat"], f"<b>Nuevo en</b> <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n{body}{link}{_a_cargo(store, ref)}")
         else:
             s["base"] = True
             resumen = "\n".join(f"• {esc(a.nombre)}" for a in anexos[:25]) + ("\n..." if len(anexos) > 25 else "")
