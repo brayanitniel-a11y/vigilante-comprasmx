@@ -45,7 +45,8 @@ class Store:
         self.path = path
         self.force = False  # pedir una revision inmediata (modo loop)
         self.avisar_fin = None  # chat al que avisar cuando termine una revision pedida con /revisar
-        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}, "tareas": {}}
+        self.data = {"offset": 0, "subs": [], "docs": {}, "fails": {}, "seen": {}, "crono": {}, "datos": {}, "cierre": {}, "tareas": {},
+                     "finales": {}, "archivo": [], "recordatorio": ""}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))
@@ -54,6 +55,9 @@ class Store:
         self.data.setdefault("datos", {})
         self.data.setdefault("cierre", {})
         self.data.setdefault("tareas", {})
+        self.data.setdefault("finales", {})   # ref -> {estatus, t}: ya adjudicado; se archiva a las 24 h
+        self.data.setdefault("archivo", [])   # el archivero: procedimientos que ya dejaron de rastrearse
+        self.data.setdefault("recordatorio", "")   # fecha (aaaa-mm-dd) del ultimo recordatorio diario enviado
         self._saved = self._dump()
 
     def _dump(self) -> str:
@@ -170,7 +174,8 @@ def handle_message(store: Store, chat_id: int, text: str):
              "<b>Vigilante de anexos</b>\n"
              "/agregar &lt;numero de procedimiento&gt; [alias]\n"
              "/quitar &lt;# de la lista, alias o numero&gt;\n"
-             "/lista\n/fechas [# de la lista]\n/plan [# de la lista]\n/revisar\n\n"
+             "/lista\n/fechas [# de la lista]\n/plan [# de la lista]\n/hoy (eventos de hoy)\n"
+             "/archivo [texto o #] (procedimientos ya adjudicados)\n/reactivar &lt;# del archivo o folio&gt;\n/revisar\n\n"
              "Tambien puedes mandar solo el numero, por ejemplo IO-89-L47-830124970-N-14-2026")
     elif cmd == "/agregar" or es_numero:
         parts = (rest if cmd == "/agregar" else text).split(None, 1)
@@ -262,6 +267,13 @@ def handle_message(store: Store, chat_id: int, text: str):
                             cierre_ja=store.data["cierre"].get(s["ref"], False))
         send(chat_id, "<b>Asi quedaria la tarea en TickTick</b> (vista previa, aun no escribo nada)\n\n"
                       + esc(lic.texto_plan(plan)))
+    elif cmd == "/hoy":
+        t = _texto_hoy(store, chat_id)
+        send(chat_id, esc(t) if t else "Hoy no tienes eventos programados en tus procedimientos.")
+    elif cmd == "/archivo":
+        _cmd_archivo(store, chat_id, rest)
+    elif cmd == "/reactivar":
+        _cmd_reactivar(store, chat_id, rest)
     elif cmd == "/revisar":
         store.force = True
         store.avisar_fin = chat_id
@@ -295,6 +307,170 @@ def open_fetcher(debug: bool = False):
 
 def interval_now() -> int:
     return POLL_SECONDS if 7 <= time.localtime().tm_hour < 21 else NIGHT_POLL_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# Recordatorio diario (8:30) y /hoy
+# --------------------------------------------------------------------------- #
+HORA_RECORDATORIO = (8, 30)
+
+
+def _texto_hoy(store: Store, chat_id: int) -> str:
+    hoy = ahora_mx().date()
+    eventos = []
+    for s in store.data["subs"]:
+        if s["chat"] != chat_id:
+            continue
+        ref = s["ref"]
+        crono, datos = store.data["crono"].get(ref), store.data["datos"].get(ref, {})
+        if not crono or not cr.es_lectura_valida(crono):
+            continue
+        nombre = lic.nombre_visible(ref, datos, s["alias"])
+        eventos += [(nombre, clave, fecha) for clave, fecha in lic.eventos_hoy(ref, crono, datos, hoy)]
+    return lic.texto_recordatorio(eventos, hoy)
+
+
+def _recordatorio_diario(store: Store):
+    """Una vez al dia, a partir de las 8:30 (y antes de las 21:00): resumen natural de los eventos de hoy por chat.
+    Si ese dia no hay eventos no manda nada (para ver el dia a demanda existe /hoy)."""
+    ahora = ahora_mx()
+    hoy = ahora.date().isoformat()
+    if store.data.get("recordatorio") == hoy or (ahora.hour, ahora.minute) < HORA_RECORDATORIO or ahora.hour >= 21:
+        return
+    store.data["recordatorio"] = hoy
+    for chat in sorted({s["chat"] for s in store.data["subs"]}):
+        t = _texto_hoy(store, chat)
+        if t:
+            send(chat, "Buenos días ☀️\n\n" + esc(t))
+    store.save()
+
+
+# --------------------------------------------------------------------------- #
+# Archivero: procedimientos adjudicados / desiertos / cancelados
+# --------------------------------------------------------------------------- #
+FINAL_RE = re.compile(r"adjudicad|desiert|cancelad")
+ARCHIVO_HORAS = float(os.environ.get("ARCHIVO_HORAS", "24"))
+
+
+def _es_final(estatus: str) -> bool:
+    return bool(FINAL_RE.search(lic._sin_acentos(estatus or "").lower()))
+
+
+def _registrar_final(store: Store, ref: str, subs: list):
+    """Si el estatus ya es final, empieza la cuenta de 24 h; si vuelve a uno no final, se cancela."""
+    est = store.data["datos"].get(ref, {}).get("estatus", "")
+    if not est:
+        return
+    fin = store.data["finales"]
+    if _es_final(est):
+        previo = fin.get(ref)
+        if not previo or tk._norm(previo["estatus"]) != tk._norm(est):
+            fin[ref] = {"estatus": est, "t": int(time.time())}
+            for s in subs:
+                alias = f" ({esc(s['alias'])})" if s["alias"] else ""
+                send(s["chat"], f"<b>{esc(est)}</b>: <code>{esc(ref)}</code>{alias}\n"
+                                "Lo sigo vigilando 24 horas por si sale algún documento más; después dejo de "
+                                "rastrearlo y lo guardo en el archivero (consúltalo con /archivo).")
+    elif ref in fin:
+        fin.pop(ref)
+        for s in subs:
+            send(s["chat"], f"<code>{esc(ref)}</code> volvió a <b>{esc(est)}</b>: sigo rastreándolo.")
+
+
+def _archivar_vencidos(store: Store):
+    ahora = time.time()
+    for ref, f in list(store.data["finales"].items()):
+        if ahora - f["t"] >= ARCHIVO_HORAS * 3600:
+            _archivar(store, ref, f)
+
+
+def _archivar(store: Store, ref: str, f: dict):
+    d = store.data
+    subs = [s for s in d["subs"] if s["ref"] == ref]
+    datos, crono = d["datos"].get(ref, {}), d["crono"].get(ref) or {}
+    chats = sorted({s["chat"] for s in subs})
+    entrada = {
+        "ref": ref, "alias": next((s["alias"] for s in subs if s["alias"]), ""),
+        "titulo": lic.titulo(ref, datos), "nombre": datos.get("nombre", ""), "entidad": datos.get("entidad", ""),
+        "unidad": datos.get("unidad", ""), "caracter": lic.caracter(ref, datos),
+        "estatus": f["estatus"], "fecha_estatus": f["t"], "archivado": int(time.time()),
+        "fechas": [[t, v] for t, v in cr.resumen(crono)] if crono else [],
+        "tarea": d["tareas"].get(ref), "chats": chats,
+    }
+    d["archivo"] = [e for e in d["archivo"] if e["ref"] != ref] + [entrada]
+    d["subs"] = [s for s in d["subs"] if s["ref"] != ref]
+    for k in ("docs", "fails", "seen", "crono", "datos", "cierre", "tareas", "finales"):
+        d[k].pop(ref, None)
+    for chat in chats:
+        send(chat, f"Archivado: <code>{esc(ref)}</code> ({esc(f['estatus'])}). Ya no lo rastreo; "
+                   "lo encuentras con /archivo.")
+    store.save()
+
+
+def _fecha_corta(ts: int) -> str:
+    return datetime.fromtimestamp(ts, ZoneInfo("America/Mexico_City")).strftime("%d/%m/%Y")
+
+
+def _archivo_de(store: Store, chat_id: int) -> list:
+    return sorted((e for e in store.data["archivo"] if chat_id in e.get("chats", [])),
+                  key=lambda e: e["archivado"], reverse=True)
+
+
+def _cmd_archivo(store: Store, chat_id: int, rest: str):
+    todos = _archivo_de(store, chat_id)
+    if not todos:
+        send(chat_id, "El archivero está vacío. Aquí aparecen los procedimientos adjudicados (o desiertos/cancelados) "
+                      "24 horas después de su cambio de estatus.")
+        return
+    if rest.isdigit() and 1 <= int(rest) <= len(todos):
+        e = todos[int(rest) - 1]
+        lineas = [f"<b>{esc(e['titulo'])}</b>", f"<code>{esc(e['ref'])}</code>" + (f" ({esc(e['alias'])})" if e["alias"] else ""),
+                  f"Estatus final: {esc(e['estatus'])} (desde {_fecha_corta(e['fecha_estatus'])})",
+                  f"Archivado: {_fecha_corta(e['archivado'])}"]
+        for k, etq in (("nombre", "Nombre"), ("unidad", "Unidad compradora"), ("caracter", "Carácter")):
+            if e.get(k):
+                lineas.append(f"{etq}: {esc(e[k])}")
+        for t, v in e.get("fechas", []):
+            lineas.append(f"   {esc(t)}: {esc(v)}")
+        lineas.append(f"\nPara vigilarlo otra vez: /reactivar {todos.index(e) + 1}")
+        send(chat_id, "\n".join(lineas))
+        return
+    q = lic._sin_acentos(rest).lower().strip()
+    if q:
+        todos = [e for e in todos if q in lic._sin_acentos(" ".join(
+            [e["ref"], e["alias"], e["titulo"], e["nombre"], e["entidad"], e["estatus"]])).lower()]
+        if not todos:
+            send(chat_id, "No encontré nada en el archivero con ese texto.")
+            return
+    base = _archivo_de(store, chat_id)
+    bloques = [f"<b>Archivero</b> ({len(todos)})" + (f" — filtro: {esc(rest)}" if q else "")]
+    for e in todos:
+        n = base.index(e) + 1
+        bloques.append(f"{n}. <code>{esc(e['ref'])}</code>" + (f" ({esc(e['alias'])})" if e["alias"] else "")
+                       + f"\n   {esc(e['estatus'])} · archivado {_fecha_corta(e['archivado'])}")
+    bloques.append("Usa /archivo &lt;#&gt; para ver el detalle y /reactivar &lt;#&gt; para vigilarlo otra vez.")
+    _enviar_por_partes(chat_id, bloques)
+
+
+def _cmd_reactivar(store: Store, chat_id: int, rest: str):
+    todos = _archivo_de(store, chat_id)
+    if rest.isdigit() and 1 <= int(rest) <= len(todos):
+        e = todos[int(rest) - 1]
+    else:
+        e = next((x for x in todos if normalize_ref(rest) == x["ref"]), None) if rest else None
+    if not e:
+        send(chat_id, "No lo encontré. Usa /archivo para ver los números y manda /reactivar &lt;#&gt; o el folio.")
+        return
+    ref = e["ref"]
+    store.data["archivo"] = [x for x in store.data["archivo"] if x["ref"] != ref]
+    if not _find(store, chat_id, ref):
+        store.data["subs"].append({"chat": chat_id, "ref": ref, "alias": e.get("alias", ""), "base": False,
+                                   "warned": False, "tarea": False})
+    if e.get("tarea"):
+        store.data["tareas"][ref] = e["tarea"]
+    store.force = True
+    send(chat_id, f"Reactivado: <code>{esc(ref)}</code>. Vuelvo a vigilarlo y tomo como base lo que ya hay publicado."
+                  "\nSi su estatus sigue siendo final, se volverá a archivar a las 24 horas.")
 
 
 def _car(store: Store, ref: str) -> str:
@@ -412,6 +588,7 @@ def check_ref(store: Store, ref: str, fetch):
                 alias = f" ({esc(s['alias'])})" if s["alias"] else ""
                 send(s["chat"], f"<b>Cambio de estatus</b> en <code>{esc(ref)}</code>{alias}{_car(store, ref)}\n"
                                 f"Antes: {esc(antes_est)}\nAhora: <b>{esc(nuevo_est)}</b>")
+    _registrar_final(store, ref, subs)
     if anexos and any(re.search(r"cierre", a.nombre, re.I) and re.search(r"aclaraci|junta", a.nombre, re.I)
                       for a in anexos):
         store.data["cierre"][ref] = True   # no habra mas cambios en bases ni fechas
@@ -456,6 +633,7 @@ def check_ref(store: Store, ref: str, fetch):
 
 def run_cycle(store: Store, between=None):
     """between: funcion que se llama despues de cada procedimiento (el modo loop la usa para seguir atendiendo Telegram)."""
+    _archivar_vencidos(store)
     refs = sorted({s["ref"] for s in store.data["subs"]})
     if not refs:
         return
@@ -501,6 +679,7 @@ def once(store: Store):
     except Exception as e:  # noqa: BLE001
         print("ERROR de Telegram (getUpdates):", e)
         problema = True
+    _recordatorio_diario(store)
     run_cycle(store)
     store.save()
     if problema or SEND_FAILURES:
@@ -517,6 +696,10 @@ def loop(store: Store):
         except Exception as e:  # noqa: BLE001
             print("telegram:", e)
             time.sleep(5)
+        try:
+            _recordatorio_diario(store)
+        except Exception as e:  # noqa: BLE001
+            print("recordatorio:", e)
         if store.force or time.time() >= nxt:
             store.force = False
             t0 = time.time()

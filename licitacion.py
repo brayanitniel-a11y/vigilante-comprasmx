@@ -138,6 +138,7 @@ class Item:
     fecha: datetime | date | None = None
     todo_el_dia: bool = False
     hecho: bool = False
+    clave: str = ""        # tipo de punto automatico (ja, pp, nf, limite_preguntas, ...); vacio si es del usuario
 
 
 @dataclass
@@ -165,7 +166,7 @@ def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: boo
         limite = min(limite, cand) if limite else cand
     elaborar = limite.date() - timedelta(days=1) if limite else None
 
-    etiquetas = [pl["etiqueta"]]
+    etiquetas = [pl["etiqueta"]] if pl.get("etiqueta") else []   # sin etiqueta fija: solo FALLO y el estatus
     if pp and ahora < pp:
         fecha_tarea = pp
     elif nf:
@@ -187,10 +188,10 @@ def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: boo
     for it in pl["items"]:
         k = it.get("auto")
         if k == "cierre_ja":
-            items.append(Item(it["titulo"], hecho=bool(cierre_ja)))
+            items.append(Item(it["titulo"], hecho=bool(cierre_ja), clave=k))
         elif k in auto:
             fecha, dia = auto[k]
-            items.append(Item(it["titulo"], fecha, dia))
+            items.append(Item(it["titulo"], fecha, dia, clave=k))
         else:
             items.append(Item(it["titulo"]))
     for nombre, v in (("la junta de aclaraciones", ja), ("la presentación y apertura", pp), ("el fallo", nf)):
@@ -203,7 +204,7 @@ def calcular(ref: str, crono: dict, datos: dict, ahora: datetime, cierre_ja: boo
 def texto_plan(plan: Plan) -> str:
     """Resumen legible (sin formato HTML)."""
     lineas = [plan.titulo,
-              f"Lista: {plan.lista} | Etiquetas: {', '.join(plan.etiquetas)}",
+              f"Lista: {plan.lista} | Etiquetas: {', '.join(plan.etiquetas) or '(ninguna)'}",
               f"Carácter: {plan.caracter or '(sin dato)'} | Estatus: {plan.estatus or '(sin dato)'}",
               f"Fecha de la tarea: {cr.fmt_dt(plan.fecha_tarea) if plan.fecha_tarea else '(sin fecha)'}",
               ""]
@@ -219,3 +220,74 @@ def texto_plan(plan: Plan) -> str:
     for a in plan.avisos:
         lineas.append(f"⚠ {a}")
     return "\n".join(lineas)
+
+
+# ----------------------------------------------------------------------------------------------
+# Recordatorio del dia
+# ----------------------------------------------------------------------------------------------
+ORDEN_EVENTOS = ["nf", "pp", "ja", "limite_preguntas", "elaborar_preguntas", "visita"]
+
+
+def nombre_visible(ref: str, datos: dict, alias: str = "") -> str:
+    """LA-N-23-2026 Hidalgo (alias)"""
+    base = " ".join(p for p in (nombre_corto(ref), identificador(datos)) if p)
+    return f"{base} ({alias})" if alias else base
+
+
+def eventos_hoy(ref: str, crono: dict, datos: dict, hoy: date) -> list[tuple[str, datetime | date]]:
+    """Eventos de este procedimiento que caen en `hoy`: [(clave, fecha)]. Usa las mismas reglas que la tarea."""
+    plan = calcular(ref, crono, datos, datetime(hoy.year, hoy.month, hoy.day))
+    out = []
+    for it in plan.items:
+        if it.clave in ORDEN_EVENTOS and it.fecha:
+            d = it.fecha.date() if isinstance(it.fecha, datetime) else it.fecha
+            if d == hoy:
+                out.append((it.clave, it.fecha))
+    return out
+
+
+def _lista(nombres: list[str]) -> str:
+    if len(nombres) <= 1:
+        return "".join(nombres)
+    return ", ".join(nombres[:-1]) + " y " + nombres[-1]
+
+
+def _con_hora(nombre: str, fecha, prefijo: str = "") -> str:
+    return f"{nombre} ({prefijo}{fecha:%H:%M})" if isinstance(fecha, datetime) else nombre
+
+
+def texto_recordatorio(eventos: list[tuple[str, str, datetime | date]], hoy: date) -> str:
+    """eventos: [(nombre visible, clave, fecha)]. Devuelve el mensaje en tono natural, o "" si no hay nada hoy."""
+    if not eventos:
+        return ""
+    por_clave: dict[str, list[tuple[str, datetime | date]]] = {}
+    for nombre, clave, fecha in eventos:
+        por_clave.setdefault(clave, []).append((nombre, fecha))
+
+    def clave_orden(t):
+        f = t[1]
+        return f if isinstance(f, datetime) else datetime(f.year, f.month, f.day)
+
+    def frase(clave: str) -> str:
+        lista = sorted(por_clave[clave], key=clave_orden)
+        n = len(lista)
+        v = _lista([_con_hora(nom, f, "límite " if clave == "limite_preguntas" else "") for nom, f in lista])
+        if clave == "nf":
+            return (f"salen las actas de fallo de {v}, así que debes estar al pendiente" if n > 1
+                    else f"sale el acta de fallo de {v}, así que debes estar al pendiente")
+        if clave == "pp":
+            return (f"son las presentaciones y aperturas de proposiciones de {v}" if n > 1
+                    else f"es la presentación y apertura de proposiciones de {v}")
+        if clave == "ja":
+            return f"son las juntas de aclaraciones de {v}" if n > 1 else f"es la junta de aclaraciones de {v}"
+        if clave == "limite_preguntas":
+            return f"se deben cargar las preguntas de la junta de aclaraciones de {v}"
+        if clave == "elaborar_preguntas":
+            return f"toca elaborar las preguntas de la junta de aclaraciones de {v}"
+        return f"hay visitas a instalaciones de {v}" if n > 1 else f"hay visita a instalaciones de {v}"
+
+    oraciones = []
+    for clave in [c for c in ORDEN_EVENTOS if c in por_clave]:
+        inicio = "Recuerda que hoy " if not oraciones else "Además, hoy "
+        oraciones.append(f"{inicio}{frase(clave)}.")
+    return "\n\n".join(oraciones)

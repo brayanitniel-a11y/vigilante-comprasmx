@@ -321,17 +321,17 @@ assert por["Elaborar Preguntas"].fecha.isoformat() == "2026-11-22" and por["Elab
 assert por["EVENTO: JA"].fecha == datetime(2026, 11, 24, 9, 0) and por["Evento: PP"].fecha == datetime(2026, 12, 9, 9, 0)
 assert por["Evento: NF"].fecha == datetime(2026, 12, 29, 12, 0) and por["¿Visita?"].fecha is None
 assert por["Solicitar Apoyos"].fecha is None and por["Acta de cierre de JA"].fecha is None and not por["Acta de cierre de JA"].hecho
-assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == ["LICITACIONES"] and pl.lista == "Equipo Médico"
+assert pl.fecha_tarea == datetime(2026, 12, 9, 9, 0) and pl.etiquetas == [] and pl.lista == "Equipo Médico"
 assert pl.titulo == "LICITACIÓN LA-T-163-2026 Baja California" and not pl.avisos
 
 # la fecha de la tarea cambia a NF + FALLO cuando se cumple la hora de PP
 antes_pp = lic.calcular(R, CE, D163, datetime(2026, 12, 9, 8, 59))
-assert antes_pp.fecha_tarea == datetime(2026, 12, 9, 9, 0) and antes_pp.etiquetas == ["LICITACIONES"]
+assert antes_pp.fecha_tarea == datetime(2026, 12, 9, 9, 0) and antes_pp.etiquetas == []
 despues = lic.calcular(R, CE, D163, datetime(2026, 12, 9, 9, 0))
-assert despues.fecha_tarea == datetime(2026, 12, 29, 12, 0) and despues.etiquetas == ["LICITACIONES", "FALLO"]
+assert despues.fecha_tarea == datetime(2026, 12, 29, 12, 0) and despues.etiquetas == ["FALLO"]
 # si difieren la PP despues, el plan se recalcula solo (la tarea vuelve a PP y se quita FALLO)
 dif = lic.calcular(R, {**CE, "Fecha y hora de presentación y apertura de proposiciones": "16/12/2026 09:00"}, D163, datetime(2026, 12, 9, 10, 0))
-assert dif.fecha_tarea == datetime(2026, 12, 16, 9, 0) and dif.etiquetas == ["LICITACIONES"]
+assert dif.fecha_tarea == datetime(2026, 12, 16, 9, 0) and dif.etiquetas == []
 
 # limite: si ComprasMX trae uno mas temprano que 24 h antes, manda ese menos 1 h
 temprano = lic.calcular(R, {**CE, "Fecha y hora límite para envío de aclaraciones a través de Compras MX": "22/11/2026 09:00"}, D163, datetime(2026, 10, 31))
@@ -386,7 +386,7 @@ assert "Carácter: Internacional bajo tratados" in lic.texto_plan(pl), lic.texto
 # 27) logica pura de TickTick: crear y actualizar respetando lo del usuario
 import ticktick as tk  # noqa: E402
 tn = tk.tarea_nueva(pl, "PID")
-assert tn["title"] == pl.titulo and tn["tags"] == ["LICITACIONES"] and tn["dueDate"] == "2026-12-09T09:00:00-0600" and len(tn["items"]) == 16
+assert tn["title"] == pl.titulo and tn["tags"] == [] and tn["dueDate"] == "2026-12-09T09:00:00-0600" and len(tn["items"]) == 16
 assert tn["items"][3]["isAllDay"] and tn["items"][3]["startDate"].startswith("2026-11-22") and "startDate" not in tn["items"][0]
 usuario = {**tn, "content": "mi nota", "items": [{**i} for i in tn["items"]]}
 usuario["items"][0]["status"] = 1; usuario["items"][7]["status"] = 1
@@ -491,7 +491,7 @@ bot.ahora_mx = lambda: datetime(2026, 11, 1, 12, 0)
 n = len(sent)
 bot.handle_message(store, 1, f"/agregar {REF7}"); bot.run_cycle(store)
 tags = [g.lower() for g in nube["T1"]["tags"]]
-assert "en_aclaraciones" in tags and "licitaciones" in tags and any("EN ACLARACIONES" in m for m in sent[n:]), (tags, sent[n:])
+assert "en_aclaraciones" in tags and "licitaciones" not in tags and any("EN ACLARACIONES" in m for m in sent[n:]), (tags, sent[n:])
 nube["T1"]["tags"].append("mi-etiqueta")                      # etiqueta puesta por el usuario: no se toca
 n = len(sent)
 bot.run_cycle(store)                                          # mismo estatus: ni aviso ni cambios
@@ -499,7 +499,7 @@ assert len(sent) == n
 datos_site[REF7] = con_estatus("EN APERTURA")
 bot.run_cycle(store)
 tags = [g.lower() for g in nube["T1"]["tags"]]
-assert "en_apertura" in tags and "en_aclaraciones" not in tags and "mi-etiqueta" in tags and "licitaciones" in tags, tags
+assert "en_apertura" in tags and "en_aclaraciones" not in tags and "mi-etiqueta" in tags and "licitaciones" not in tags, tags
 assert any("Cambio de estatus" in m and "EN ACLARACIONES" in m and "EN APERTURA" in m and "Nacional" in m for m in sent[n:]), sent[n:]
 assert store.data["tareas"][REF7]["estatus"] == "EN APERTURA"
 # tarea ya existente: se adopta y se le pone la etiqueta de estatus
@@ -511,4 +511,69 @@ assert len(nube) == 1 and "en_apertura" in [g.lower() for g in nube["M1"]["tags"
 bot.handle_message(store, 1, f"/plan {REF7}"); assert "Estatus: EN APERTURA" in sent[-1], sent[-1]
 bot.handle_message(store, 1, f"/quitar {REF7}")
 os.environ.pop("TICKTICK_TOKEN")
+# 33) recordatorio del dia: eventos y redaccion
+from datetime import date  # noqa: E402
+ev = lambda d: [c for c, _ in lic.eventos_hoy(R, CE, D163, d)]   # noqa: E731
+assert ev(date(2026, 11, 22)) == ["elaborar_preguntas"] and ev(date(2026, 11, 23)) == ["limite_preguntas"]
+assert ev(date(2026, 11, 24)) == ["ja"] and ev(date(2026, 12, 9)) == ["pp"] and ev(date(2026, 12, 29)) == ["nf"]
+assert ev(date(2026, 11, 2)) == []
+h = date(2026, 11, 5)
+t = lic.texto_recordatorio([("A", "nf", datetime(2026, 11, 5, 13, 0)), ("B", "nf", datetime(2026, 11, 5, 9, 0)),
+                            ("C", "limite_preguntas", datetime(2026, 11, 5, 8, 0)), ("D", "elaborar_preguntas", date(2026, 11, 5))], h)
+assert t.startswith("Recuerda que hoy salen las actas de fallo de B (09:00) y A (13:00), así que debes estar al pendiente."), t
+assert "Además, hoy se deben cargar las preguntas de la junta de aclaraciones de C (límite 08:00)." in t and "toca elaborar las preguntas" in t
+assert lic.texto_recordatorio([("A", "nf", datetime(2026, 11, 5, 13, 0))], h) == "Recuerda que hoy sale el acta de fallo de A (13:00), así que debes estar al pendiente."
+assert lic.texto_recordatorio([], h) == ""
+
+# 34) recordatorio en el bot: /hoy y el aviso diario de las 8:30 (una sola vez al dia)
+REF8 = "LA-72-037-913055954-N-24-2026"
+site[REF8] = [Anexo("q1", "[ANEXOS] CONVOCATORIA (1 archivos)", "http://x/p")]
+def datos8(est):
+    return cr.parse_pairs([["Tipo de procedimiento de contratación:", "LICITACIÓN PÚBLICA"], ["Carácter:", "NACIONAL"],
+                           ["Estatus del procedimiento de contratación:", est],
+                           ["Entidad Federativa donde se llevará a cabo la contratación:", "HIDALGO"]])
+datos_site[REF8] = datos8("EN APERTURA"); crono_site[REF8] = dict(CE)
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 8, 0)
+bot.handle_message(store, 1, f"/agregar {REF8} Quirofano"); bot.run_cycle(store)
+bot.handle_message(store, 1, "/hoy")
+assert "es la presentación y apertura de proposiciones de LA-N-24-2026 Hidalgo (Quirofano) (09:00)" in sent[-1], sent[-1]
+n = len(sent); store.data["recordatorio"] = ""
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 8, 29); bot._recordatorio_diario(store); assert len(sent) == n   # aun no son las 8:30
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 8, 30); bot._recordatorio_diario(store)
+assert len(sent) == n + 1 and sent[-1].startswith("Buenos días") and "Quirofano" in sent[-1], sent[n:]
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 12, 0); bot._recordatorio_diario(store); assert len(sent) == n + 1   # ya se mando hoy
+bot.ahora_mx = lambda: datetime(2026, 12, 10, 8, 30); bot._recordatorio_diario(store); assert len(sent) == n + 1   # sin eventos: no manda
+assert store.data["recordatorio"] == "2026-12-10"
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 21, 5); store.data["recordatorio"] = ""; bot._recordatorio_diario(store); assert len(sent) == n + 1
+bot.ahora_mx = lambda: datetime(2026, 12, 9, 8, 0)
+
+# 35) archivero: estatus final -> 24 h de espera -> se archiva; /archivo y /reactivar
+assert bot._es_final("ADJUDICADO") and bot._es_final("Adjudicado parcial") and bot._es_final("DESIERTO") and bot._es_final("CANCELADO")
+assert not bot._es_final("EN APERTURA") and not bot._es_final("EN DECISIÓN DE FALLO") and not bot._es_final("")
+n = len(sent); datos_site[REF8] = datos8("ADJUDICADO PARCIAL"); bot.run_cycle(store)
+assert REF8 in store.data["finales"] and any("ADJUDICADO PARCIAL" in m and "24 horas" in m and "archivero" in m for m in sent[n:]), sent[n:]
+n = len(sent); bot.run_cycle(store)
+assert not any("24 horas" in m for m in sent[n:]) and any(s["ref"] == REF8 for s in store.data["subs"])      # un solo aviso; sigue vigilado
+# vuelve a un estatus no final antes de las 24 h: se cancela
+datos_site[REF8] = datos8("EN DECISIÓN DE FALLO"); n = len(sent); bot.run_cycle(store)
+assert REF8 not in store.data["finales"] and any("sigo rastreándolo" in m for m in sent[n:]), sent[n:]
+datos_site[REF8] = datos8("ADJUDICADO"); bot.run_cycle(store)
+assert REF8 in store.data["finales"]
+store.data["finales"][REF8]["t"] -= 23 * 3600; bot.run_cycle(store)
+assert any(s["ref"] == REF8 for s in store.data["subs"]) and not store.data["archivo"]                        # 23 h: todavia no
+store.data["finales"][REF8]["t"] -= 2 * 3600; n = len(sent); bot.run_cycle(store)
+assert not any(s["ref"] == REF8 for s in store.data["subs"]) and REF8 not in store.data["crono"] and REF8 not in store.data["datos"]
+assert REF8 not in store.data["finales"] and len(store.data["archivo"]) == 1 and any("Archivado" in m for m in sent[n:]), sent[n:]
+e = store.data["archivo"][0]; assert e["alias"] == "Quirofano" and e["estatus"] == "ADJUDICADO" and e["chats"] == [1] and e["fechas"]
+bot.handle_message(store, 1, "/archivo"); assert "Archivero" in sent[-1] and REF8 in sent[-1] and "1." in sent[-1], sent[-1]
+bot.handle_message(store, 1, "/archivo quirofano"); assert REF8 in sent[-1]
+bot.handle_message(store, 1, "/archivo hidalgo"); assert REF8 in sent[-1]
+bot.handle_message(store, 1, "/archivo zzz"); assert "No encontré" in sent[-1]
+bot.handle_message(store, 1, "/archivo 1"); assert "Estatus final: ADJUDICADO" in sent[-1] and "LICITACIÓN LA-N-24-2026 Hidalgo" in sent[-1], sent[-1]
+bot.handle_message(store, 5, "/archivo")                       # otro chat (no autorizado) no ve nada de este archivero
+bot.handle_message(store, 1, "/reactivar 9"); assert "No lo encontré" in sent[-1]
+bot.handle_message(store, 1, "/reactivar 1")
+assert not store.data["archivo"] and any(s["ref"] == REF8 and s["alias"] == "Quirofano" for s in store.data["subs"]), sent[-1]
+bot.handle_message(store, 1, "/archivo"); assert "vacío" in sent[-1]
+bot.handle_message(store, 1, f"/quitar {REF8}")
 print("OK: todas las pruebas pasaron")
